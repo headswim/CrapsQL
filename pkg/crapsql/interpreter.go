@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"CrapsQL/pkg/crapsgame"
+	"github.com/headswim/CrapsQL/pkg/crapsgame"
 )
 
 // Interpreter executes CrapsQL statements

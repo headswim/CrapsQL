@@ -1,8 +1,9 @@
 package crapsql
 
 import (
-	"CrapsQL/pkg/crapsgame"
 	"fmt"
+
+	"github.com/headswim/CrapsQL/pkg/crapsgame"
 )
 
 // ValidationError represents a validation error with context

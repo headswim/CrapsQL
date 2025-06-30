@@ -1,8 +1,9 @@
 package crapsql
 
 import (
-	"CrapsQL/pkg/crapsgame"
 	"fmt"
+
+	"github.com/headswim/CrapsQL/pkg/crapsgame"
 )
 
 // Table represents a craps table with game state and players

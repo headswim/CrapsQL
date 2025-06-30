@@ -1,7 +1,7 @@
 package crapsql
 
 import (
-	"CrapsQL/pkg/crapsgame"
+	"github.com/headswim/CrapsQL/pkg/crapsgame"
 	"fmt"
 	"math"
 	"strings"
