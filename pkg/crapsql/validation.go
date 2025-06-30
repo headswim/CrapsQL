@@ -394,26 +394,3 @@ func recoverFromParseError(parser *Parser) Statement {
 	parser.nextToken()
 	return parser.parseStatement()
 }
-
-// handleLexerError attempts to recover from a lexer error by returning a special error token
-func handleLexerError(lexer *Lexer) Token {
-	// Log the error for debugging
-	fmt.Printf("Lexer error recovery: returning error token\n")
-
-	// Return a special error token that can be handled by the parser
-	return Token{
-		Type:    ILLEGAL,
-		Literal: "ERROR",
-		Line:    lexer.line,
-		Column:  lexer.column,
-	}
-}
-
-// handleInterpreterError provides graceful error handling for interpreter errors
-func handleInterpreterError(interpreter *Interpreter, err error) string {
-	// Log the error for debugging
-	fmt.Printf("Interpreter error recovery: %v\n", err)
-
-	// Return a user-friendly error message
-	return fmt.Sprintf("❌ Error: %v\n💡 Tip: Check your syntax and try again", err)
-}

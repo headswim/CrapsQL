@@ -891,43 +891,6 @@ func (p *Parser) Errors() []string {
 	return p.errors
 }
 
-func (p *Parser) parseExpression() Expression {
-	// Full expression parsing with operator precedence
-	return p.parseInfixExpression(p.parsePrimaryExpression(), 0)
-}
-
-// parseInfixExpression handles operator precedence
-func (p *Parser) parseInfixExpression(left Expression, precedence int) Expression {
-	for !p.peekTokenIs(SEMICOLON) && precedence < p.peekPrecedence() {
-		operator := p.peekToken.Literal
-		p.nextToken() // consume operator
-		right := p.parsePrimaryExpression()
-
-		left = &InfixExpression{
-			Token:    p.curToken,
-			Left:     left,
-			Operator: operator,
-			Right:    right,
-		}
-	}
-
-	return left
-}
-
-// peekPrecedence returns the precedence of the next token
-func (p *Parser) peekPrecedence() int {
-	switch p.peekToken.Type {
-	case ASTERISK, SLASH:
-		return 3
-	case PLUS, MINUS:
-		return 2
-	case LT, GT, EQ, NOT_EQ:
-		return 1
-	default:
-		return 0
-	}
-}
-
 func (p *Parser) parseRollStatement() *RollStatement {
 	stmt := &RollStatement{Token: p.curToken}
 

@@ -272,9 +272,16 @@ func (t *Table) updateGameState(roll *Roll) {
 		if roll.Total == 7 {
 			// Seven out - pass line loses, don't pass wins
 			t.sevenOut(roll)
-		} else if roll.Total == int(t.Point) {
-			// Point made - pass line wins, don't pass loses
-			t.resolvePoint(roll)
+		} else {
+			pointNumber, err := PointToNumber(t.Point)
+			if err != nil {
+				fmt.Printf("Error getting point number: %v\n", err)
+				return
+			}
+			if roll.Total == pointNumber {
+				// Point made - pass line wins, don't pass loses
+				t.resolvePoint(roll)
+			}
 		}
 		// Other numbers don't change the point
 	}
@@ -290,7 +297,14 @@ func (t *Table) establishPoint(roll *Roll) {
 
 	fromState := t.State
 	t.State = StatePoint
-	t.Point = Point(roll.Total)
+
+	// Convert roll total to proper Point enum value
+	point, err := rollTotalToPoint(roll.Total)
+	if err != nil {
+		fmt.Printf("Error converting roll total to point: %v\n", err)
+		return
+	}
+	t.Point = point
 
 	// Log state transition
 	t.LogStateTransition(fromState, t.State, roll, "point establishment")
@@ -477,7 +491,11 @@ func (t *Table) validateStateTransition(fromState GameState, toState GameState, 
 		switch toState {
 		case StateComeOut:
 			// Valid: point resolution
-			if roll.Total != int(t.Point) && roll.Total != 7 {
+			pointNumber, err := PointToNumber(t.Point)
+			if err != nil {
+				return fmt.Errorf("invalid point state: %v", err)
+			}
+			if roll.Total != pointNumber && roll.Total != 7 {
 				return fmt.Errorf("invalid point phase roll: %d", roll.Total)
 			}
 		case StateSevenOut:
@@ -730,7 +748,11 @@ func (t *Table) IsPointEstablished() bool {
 // GetPointNumber returns the current point number as an integer
 func (t *Table) GetPointNumber() int {
 	if t.State == StatePoint && t.Point != PointOff {
-		return int(t.Point)
+		pointNumber, err := PointToNumber(t.Point)
+		if err != nil {
+			return 0
+		}
+		return pointNumber
 	}
 	return 0
 }
@@ -753,9 +775,9 @@ func (t *Table) establishComePoint(comeBet *ComeBet, roll *Roll) error {
 		return fmt.Errorf("come bet %s is already established on point %s", comeBet.ID, comeBet.ComePoint.String())
 	}
 
-	// Validate roll is a valid point number
-	point := Point(roll.Total)
-	if err := t.validatePoint(point); err != nil {
+	// Convert roll total to proper Point enum value
+	point, err := rollTotalToPoint(roll.Total)
+	if err != nil {
 		return fmt.Errorf("invalid point number for come bet: %d", roll.Total)
 	}
 
@@ -797,12 +819,17 @@ func (t *Table) resolveComeBet(comeBet *ComeBet, roll *Roll, player *Player) str
 		}
 	} else {
 		// Come bet is established - check for resolution
-		if roll.Total == int(comeBet.ComePoint) {
+		comePointNumber, err := PointToNumber(comeBet.ComePoint)
+		if err != nil {
+			return fmt.Sprintf("Error getting come point number: %v", err)
+		}
+
+		if roll.Total == comePointNumber {
 			// Point made - come bet wins
 			winnings := comeBet.Amount * 2 // 1:1 payout
 			if comeBet.Odds > 0 {
 				// Calculate odds payout based on point
-				oddsPayout := t.calculateComeOddsPayout(comeBet.Odds, int(comeBet.ComePoint))
+				oddsPayout := t.calculateComeOddsPayout(comeBet.Odds, comePointNumber)
 				winnings += oddsPayout
 			}
 			player.Bankroll += winnings
@@ -895,9 +922,14 @@ func (t *Table) resolveOddsBet(oddsBet *OddsBet, roll *Roll, player *Player) str
 // resolvePassLineOdds resolves pass line odds
 func (t *Table) resolvePassLineOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
 	// Pass line odds win when point is made, lose on seven out
-	if roll.Total == int(oddsBet.Point) {
+	pointNumber, err := PointToNumber(oddsBet.Point)
+	if err != nil {
+		return fmt.Sprintf("Error getting point number: %v", err)
+	}
+
+	if roll.Total == pointNumber {
 		// Point made - odds win
-		winnings := t.calculateOddsPayout(oddsBet, int(oddsBet.Point))
+		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
 		player.Bankroll += winnings
 		t.removeOddsBet(oddsBet.ID)
 		return fmt.Sprintf("Pass line odds %s wins on point %d: $%.2f", oddsBet.ID, roll.Total, winnings)
@@ -913,13 +945,18 @@ func (t *Table) resolvePassLineOdds(oddsBet *OddsBet, roll *Roll, player *Player
 // resolveDontPassOdds resolves don't pass odds
 func (t *Table) resolveDontPassOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
 	// Don't pass odds win on seven out, lose when point is made
+	pointNumber, err := PointToNumber(oddsBet.Point)
+	if err != nil {
+		return fmt.Sprintf("Error getting point number: %v", err)
+	}
+
 	if roll.Total == 7 {
 		// Seven out - odds win
-		winnings := t.calculateOddsPayout(oddsBet, int(oddsBet.Point))
+		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
 		player.Bankroll += winnings
 		t.removeOddsBet(oddsBet.ID)
 		return fmt.Sprintf("Don't pass odds %s wins on seven out: $%.2f", oddsBet.ID, winnings)
-	} else if roll.Total == int(oddsBet.Point) {
+	} else if roll.Total == pointNumber {
 		// Point made - odds lose
 		t.removeOddsBet(oddsBet.ID)
 		return fmt.Sprintf("Don't pass odds %s loses on point %d", oddsBet.ID, roll.Total)
@@ -931,9 +968,14 @@ func (t *Table) resolveDontPassOdds(oddsBet *OddsBet, roll *Roll, player *Player
 // resolveComeOdds resolves come odds
 func (t *Table) resolveComeOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
 	// Come odds win when come point is made, lose on seven out
-	if roll.Total == int(oddsBet.Point) {
+	pointNumber, err := PointToNumber(oddsBet.Point)
+	if err != nil {
+		return fmt.Sprintf("Error getting point number: %v", err)
+	}
+
+	if roll.Total == pointNumber {
 		// Come point made - odds win
-		winnings := t.calculateOddsPayout(oddsBet, int(oddsBet.Point))
+		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
 		player.Bankroll += winnings
 		t.removeOddsBet(oddsBet.ID)
 		return fmt.Sprintf("Come odds %s wins on point %d: $%.2f", oddsBet.ID, roll.Total, winnings)
@@ -949,13 +991,18 @@ func (t *Table) resolveComeOdds(oddsBet *OddsBet, roll *Roll, player *Player) st
 // resolveDontComeOdds resolves don't come odds
 func (t *Table) resolveDontComeOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
 	// Don't come odds win on seven out, lose when come point is made
+	pointNumber, err := PointToNumber(oddsBet.Point)
+	if err != nil {
+		return fmt.Sprintf("Error getting point number: %v", err)
+	}
+
 	if roll.Total == 7 {
 		// Seven out - odds win
-		winnings := t.calculateOddsPayout(oddsBet, int(oddsBet.Point))
+		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
 		player.Bankroll += winnings
 		t.removeOddsBet(oddsBet.ID)
 		return fmt.Sprintf("Don't come odds %s wins on seven out: $%.2f", oddsBet.ID, winnings)
-	} else if roll.Total == int(oddsBet.Point) {
+	} else if roll.Total == pointNumber {
 		// Come point made - odds lose
 		t.removeOddsBet(oddsBet.ID)
 		return fmt.Sprintf("Don't come odds %s loses on point %d", oddsBet.ID, roll.Total)
@@ -1079,4 +1126,46 @@ func (t *Table) validateBetPlacement(bet *Bet, player *Player) error {
 	}
 
 	return nil
+}
+
+// rollTotalToPoint converts a roll total to the corresponding Point enum value
+func rollTotalToPoint(total int) (Point, error) {
+	switch total {
+	case 4:
+		return Point4, nil
+	case 5:
+		return Point5, nil
+	case 6:
+		return Point6, nil
+	case 8:
+		return Point8, nil
+	case 9:
+		return Point9, nil
+	case 10:
+		return Point10, nil
+	default:
+		return PointOff, fmt.Errorf("invalid point number: %d", total)
+	}
+}
+
+// PointToNumber converts a Point enum value to its corresponding number
+func PointToNumber(point Point) (int, error) {
+	switch point {
+	case Point4:
+		return 4, nil
+	case Point5:
+		return 5, nil
+	case Point6:
+		return 6, nil
+	case Point8:
+		return 8, nil
+	case Point9:
+		return 9, nil
+	case Point10:
+		return 10, nil
+	case PointOff:
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("invalid point enum value: %d", point)
+	}
 }

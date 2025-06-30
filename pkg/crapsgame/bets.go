@@ -693,11 +693,17 @@ func (br *BetResolution) resolvePassLine(bet *Bet, roll *Roll, player *Player) s
 		case 7:
 			bet.Working = false
 			return fmt.Sprintf("💥 Pass line loses $%.2f (Seven out)", bet.Amount)
-		case int(br.table.Point):
-			winnings := bet.Amount
-			player.Bankroll += winnings
-			bet.Working = false
-			return fmt.Sprintf("🎉 Pass line wins $%.2f (Point made)", winnings)
+		default:
+			pointNumber, err := PointToNumber(br.table.Point)
+			if err != nil {
+				return fmt.Sprintf("Error getting point number: %v", err)
+			}
+			if roll.Total == pointNumber {
+				winnings := bet.Amount
+				player.Bankroll += winnings
+				bet.Working = false
+				return fmt.Sprintf("🎉 Pass line wins $%.2f (Point made)", winnings)
+			}
 		}
 		return ""
 	}
@@ -729,9 +735,15 @@ func (br *BetResolution) resolveDontPass(bet *Bet, roll *Roll, player *Player) s
 			player.Bankroll += winnings
 			bet.Working = false
 			return fmt.Sprintf("🎉 Don't pass wins $%.2f (Seven out)", winnings)
-		case int(br.table.Point):
-			bet.Working = false
-			return fmt.Sprintf("💥 Don't pass loses $%.2f (Point made)", bet.Amount)
+		default:
+			pointNumber, err := PointToNumber(br.table.Point)
+			if err != nil {
+				return fmt.Sprintf("Error getting point number: %v", err)
+			}
+			if roll.Total == pointNumber {
+				bet.Working = false
+				return fmt.Sprintf("💥 Don't pass loses $%.2f (Point made)", bet.Amount)
+			}
 		}
 		return ""
 	}
@@ -971,11 +983,17 @@ func (br *BetResolution) resolveCome(bet *Bet, roll *Roll, player *Player) strin
 		case 7:
 			bet.Working = false
 			return fmt.Sprintf("💥 Come bet loses $%.2f (Seven out)", bet.Amount)
-		case int(br.table.Point):
-			winnings := bet.Amount
-			player.Bankroll += winnings
-			bet.Working = false
-			return fmt.Sprintf("🎉 Come bet wins $%.2f (Point made)", winnings)
+		default:
+			pointNumber, err := PointToNumber(br.table.Point)
+			if err != nil {
+				return fmt.Sprintf("Error getting point number: %v", err)
+			}
+			if roll.Total == pointNumber {
+				winnings := bet.Amount
+				player.Bankroll += winnings
+				bet.Working = false
+				return fmt.Sprintf("🎉 Come bet wins $%.2f (Point made)", winnings)
+			}
 		}
 		return ""
 	}
@@ -1008,9 +1026,15 @@ func (br *BetResolution) resolveDontCome(bet *Bet, roll *Roll, player *Player) s
 			player.Bankroll += winnings
 			bet.Working = false
 			return fmt.Sprintf("🎉 Don't come wins $%.2f (Seven out)", winnings)
-		case int(br.table.Point):
-			bet.Working = false
-			return fmt.Sprintf("💥 Don't come loses $%.2f (Point made)", bet.Amount)
+		default:
+			pointNumber, err := PointToNumber(br.table.Point)
+			if err != nil {
+				return fmt.Sprintf("Error getting point number: %v", err)
+			}
+			if roll.Total == pointNumber {
+				bet.Working = false
+				return fmt.Sprintf("💥 Don't come loses $%.2f (Point made)", bet.Amount)
+			}
 		}
 		return ""
 	}
@@ -1176,12 +1200,16 @@ func (br *BetResolution) resolvePassOdds(bet *Bet, roll *Roll, player *Player) s
 		return ("Pass odds not valid in current state")
 	}
 
-	point := int(br.table.Point)
+	pointNumber, err := PointToNumber(br.table.Point)
+	if err != nil {
+		return fmt.Sprintf("Error getting point number: %v", err)
+	}
+
 	switch roll.Total {
-	case point:
+	case pointNumber:
 		// Point made - pass odds win
 		var odds float64
-		switch point {
+		switch pointNumber {
 		case 4, 10:
 			odds = 2.0 // 2:1
 		case 5, 9:
@@ -1189,7 +1217,7 @@ func (br *BetResolution) resolvePassOdds(bet *Bet, roll *Roll, player *Player) s
 		case 6, 8:
 			odds = 1.2 // 6:5
 		default:
-			return fmt.Sprintf("Invalid point for pass odds: %d", point)
+			return fmt.Sprintf("Invalid point for pass odds: %d", pointNumber)
 		}
 
 		winnings := bet.Amount * odds
@@ -1212,12 +1240,16 @@ func (br *BetResolution) resolveDontPassOdds(bet *Bet, roll *Roll, player *Playe
 		return ("Don't pass odds not valid in current state")
 	}
 
-	point := int(br.table.Point)
+	pointNumber, err := PointToNumber(br.table.Point)
+	if err != nil {
+		return fmt.Sprintf("Error getting point number: %v", err)
+	}
+
 	switch roll.Total {
 	case 7:
 		// Seven out - don't pass odds win
 		var odds float64
-		switch point {
+		switch pointNumber {
 		case 4, 10:
 			odds = 0.5 // 1:2
 		case 5, 9:
@@ -1225,14 +1257,14 @@ func (br *BetResolution) resolveDontPassOdds(bet *Bet, roll *Roll, player *Playe
 		case 6, 8:
 			odds = 0.833 // 5:6
 		default:
-			return fmt.Sprintf("Invalid point for don't pass odds: %d", point)
+			return fmt.Sprintf("Invalid point for don't pass odds: %d", pointNumber)
 		}
 
 		winnings := bet.Amount * odds
 		player.Bankroll += winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Don't pass odds win $%.2f (seven out)", winnings)
-	case point:
+	case pointNumber:
 		// Point made - don't pass odds lose
 		bet.Working = false
 		return fmt.Sprintf("💥 Don't pass odds lose $%.2f (point made)", bet.Amount)
