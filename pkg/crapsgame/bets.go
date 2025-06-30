@@ -855,7 +855,7 @@ func (br *BetResolution) resolvePlaceBet(bet *Bet, roll *Roll, player *Player, n
 	case number:
 		winnings := (bet.Amount * float64(numerator)) / float64(denominator)
 		player.Bankroll += winnings
-		bet.Working = false
+		// Place bets continue working after they win - don't set Working = false
 		return fmt.Sprintf("🎉 Place %d wins $%.2f", number, winnings)
 	case 7:
 		bet.Working = false
@@ -1311,7 +1311,7 @@ func (br *BetResolution) resolveBuyBet(bet *Bet, roll *Roll, player *Player, num
 		winnings := br.calculateWinningsWithCommission(bet.Amount, odds, BuyLayCommissionRate)
 		commissionMsg := br.formatCommissionMessage(bet.Amount, odds, BuyLayCommissionRate)
 		player.Bankroll += winnings
-		bet.Working = false
+		// Buy bets continue working after they win - don't set Working = false
 		return fmt.Sprintf("🎉 Buy %d wins $%.2f%s", number, winnings, commissionMsg)
 	case 7:
 		// Seven out - buy bet loses
@@ -1344,7 +1344,7 @@ func (br *BetResolution) resolveLayBet(bet *Bet, roll *Roll, player *Player, num
 		winnings := br.calculateWinningsWithCommission(bet.Amount, odds, BuyLayCommissionRate)
 		commissionMsg := br.formatCommissionMessage(bet.Amount, odds, BuyLayCommissionRate)
 		player.Bankroll += winnings
-		bet.Working = false
+		// Lay bets continue working after they win - don't set Working = false
 		return fmt.Sprintf("🎉 Lay %d wins $%.2f%s", number, winnings, commissionMsg)
 	case number:
 		// Number rolled - lay bet loses
@@ -1376,7 +1376,7 @@ func (br *BetResolution) resolvePlaceToLoseBet(bet *Bet, roll *Roll, player *Pla
 		// Calculate winnings without commission
 		winnings := bet.Amount * odds
 		player.Bankroll += winnings
-		bet.Working = false
+		// Place-to-lose bets continue working after they win - don't set Working = false
 		return fmt.Sprintf("🎉 Place-to-lose %d wins $%.2f", number, winnings)
 	case number:
 		// Number rolled - place-to-lose bet loses
@@ -1493,6 +1493,13 @@ func (br *BetResolution) checkConditionalBetState(bet *Bet, gameState GameState)
 		return bet.Working
 	}
 
+	// Special handling for place bets, buy bets, lay bets, and place-to-lose bets
+	// These bets are off during come-out rolls and on during point phases
+	if betDef.Category == PlaceBets || betDef.Category == BuyBets || betDef.Category == LayBets || betDef.Category == PlaceToLoseBets {
+		// These bets are only working during point phase
+		return gameState == StatePoint
+	}
+
 	// Check if bet requires specific game state
 	if betDef.RequiresPoint && gameState != StatePoint {
 		return false
@@ -1567,6 +1574,12 @@ func (br *BetResolution) updateBetWorkingStatus() {
 			// Get bet definition
 			betDef, exists := CanonicalBetDefinitions[bet.Type]
 			if !exists {
+				continue
+			}
+
+			// Don't override bets that have been set to Working = false by resolution
+			// This prevents resolved bets from being reactivated
+			if !bet.Working {
 				continue
 			}
 

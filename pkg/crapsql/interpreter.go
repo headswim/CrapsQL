@@ -969,11 +969,11 @@ func (i *Interpreter) executeRollStatementForPlayer(stmt *RollStatement, playerI
 }
 
 func (i *Interpreter) executeShowPoint() string {
-	point := i.table.GetPoint()
-	if point == crapsgame.PointOff {
+	pointNumber := i.table.GetPointNumber()
+	if pointNumber == 0 {
 		return "Point: OFF"
 	} else {
-		return fmt.Sprintf("Point: %d", point)
+		return fmt.Sprintf("Point: %d", pointNumber)
 	}
 }
 
