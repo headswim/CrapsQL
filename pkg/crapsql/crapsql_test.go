@@ -1,11 +1,12 @@
 package crapsql
 
 import (
-	"github.com/headswim/CrapsQL/pkg/crapsgame"
 	"fmt"
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/headswim/CrapsQL/pkg/crapsgame"
 )
 
 // ============================================================================
@@ -3633,5 +3634,454 @@ func TestSETMAXBETCommand(t *testing.T) {
 	player, _ = GetPlayer(table, "player1")
 	if player.MaxBet != 5.0 {
 		t.Errorf("Expected max bet $5.00, got $%.2f", player.MaxBet)
+	}
+}
+
+// ============================================================================
+// 12. Remove Command Tests
+// ============================================================================
+
+func TestRemoveAllBets(t *testing.T) {
+	// Test REMOVE ALL functionality
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Place multiple bets
+	_, err := PlaceBet(table, "player1", "PLACE_6", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "FIELD", 10.0)
+	if err != nil {
+		t.Fatalf("Failed to place FIELD bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "HARD_8", 10.0)
+	if err != nil {
+		t.Fatalf("Failed to place HARD_8 bet: %v", err)
+	}
+
+	// Verify bets are placed
+	player, _ := GetPlayer(table, "player1")
+	initialBankroll := player.Bankroll
+	initialBetCount := len(player.Bets)
+	if initialBetCount != 3 {
+		t.Errorf("Expected 3 bets, got %d", initialBetCount)
+	}
+
+	// Execute REMOVE ALL command
+	result, err := ExecuteString("REMOVE ALL;", table)
+	if err != nil {
+		t.Fatalf("Failed to execute REMOVE ALL command: %v", err)
+	}
+
+	// Verify result message
+	if len(result) == 0 {
+		t.Error("Expected result from REMOVE ALL command")
+	}
+	if !strings.Contains(strings.Join(result, " "), "Removed 3 bets") {
+		t.Errorf("Expected 'Removed 3 bets' message, got %v", result)
+	}
+
+	// Verify all bets are removed
+	player, _ = GetPlayer(table, "player1")
+	if len(player.Bets) != 0 {
+		t.Errorf("Expected 0 bets after REMOVE ALL, got %d", len(player.Bets))
+	}
+
+	// Verify bankroll is returned
+	expectedBankroll := initialBankroll + 24.0 + 10.0 + 10.0 // Return all bet amounts
+	if player.Bankroll != expectedBankroll {
+		t.Errorf("Expected bankroll %.2f, got %.2f", expectedBankroll, player.Bankroll)
+	}
+}
+
+func TestRemoveSpecificBetType(t *testing.T) {
+	// Test REMOVE specific bet type
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Place multiple bets of different types
+	_, err := PlaceBet(table, "player1", "PLACE_6", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "PLACE_8", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_8 bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "FIELD", 10.0)
+	if err != nil {
+		t.Fatalf("Failed to place FIELD bet: %v", err)
+	}
+
+	// Verify bets are placed
+	player, _ := GetPlayer(table, "player1")
+	initialBankroll := player.Bankroll
+	if len(player.Bets) != 3 {
+		t.Errorf("Expected 3 bets, got %d", len(player.Bets))
+	}
+
+	// Execute REMOVE PLACE_6 command
+	result, err := ExecuteString("REMOVE PLACE_6;", table)
+	if err != nil {
+		t.Fatalf("Failed to execute REMOVE PLACE_6 command: %v", err)
+	}
+
+	// Verify result message
+	if len(result) == 0 {
+		t.Error("Expected result from REMOVE PLACE_6 command")
+	}
+	if !strings.Contains(strings.Join(result, " "), "Removed 1 PLACE_6 bets") {
+		t.Errorf("Expected 'Removed 1 PLACE_6 bets' message, got %v", result)
+	}
+
+	// Verify only PLACE_6 bet is removed
+	player, _ = GetPlayer(table, "player1")
+	if len(player.Bets) != 2 {
+		t.Errorf("Expected 2 bets after REMOVE PLACE_6, got %d", len(player.Bets))
+	}
+
+	// Verify remaining bets are correct
+	betTypes := make(map[string]bool)
+	for _, bet := range player.Bets {
+		betTypes[bet.Type] = true
+	}
+	if !betTypes["PLACE_8"] {
+		t.Error("Expected PLACE_8 bet to remain")
+	}
+	if !betTypes["FIELD"] {
+		t.Error("Expected FIELD bet to remain")
+	}
+
+	// Verify bankroll is returned for removed bet
+	expectedBankroll := initialBankroll + 24.0 // Return PLACE_6 bet amount
+	if player.Bankroll != expectedBankroll {
+		t.Errorf("Expected bankroll %.2f, got %.2f", expectedBankroll, player.Bankroll)
+	}
+}
+
+func TestRemoveMultipleBetsOfSameType(t *testing.T) {
+	// Test removing multiple bets of the same type
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Place multiple FIELD bets
+	_, err := PlaceBet(table, "player1", "FIELD", 10.0)
+	if err != nil {
+		t.Fatalf("Failed to place first FIELD bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "FIELD", 15.0)
+	if err != nil {
+		t.Fatalf("Failed to place second FIELD bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "PLACE_6", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+
+	// Verify bets are placed
+	player, _ := GetPlayer(table, "player1")
+	initialBankroll := player.Bankroll
+	if len(player.Bets) != 3 {
+		t.Errorf("Expected 3 bets, got %d", len(player.Bets))
+	}
+
+	// Execute REMOVE FIELD command
+	result, err := ExecuteString("REMOVE FIELD;", table)
+	if err != nil {
+		t.Fatalf("Failed to execute REMOVE FIELD command: %v", err)
+	}
+
+	// Verify result message
+	if len(result) == 0 {
+		t.Error("Expected result from REMOVE FIELD command")
+	}
+	if !strings.Contains(strings.Join(result, " "), "Removed 2 FIELD bets") {
+		t.Errorf("Expected 'Removed 2 FIELD bets' message, got %v", result)
+	}
+
+	// Verify only FIELD bets are removed
+	player, _ = GetPlayer(table, "player1")
+	if len(player.Bets) != 1 {
+		t.Errorf("Expected 1 bet after REMOVE FIELD, got %d", len(player.Bets))
+	}
+
+	// Verify remaining bet is PLACE_6
+	if player.Bets[0].Type != "PLACE_6" {
+		t.Errorf("Expected PLACE_6 bet to remain, got %s", player.Bets[0].Type)
+	}
+
+	// Verify bankroll is returned for removed bets
+	expectedBankroll := initialBankroll + 10.0 + 15.0 // Return both FIELD bet amounts
+	if player.Bankroll != expectedBankroll {
+		t.Errorf("Expected bankroll %.2f, got %.2f", expectedBankroll, player.Bankroll)
+	}
+}
+
+func TestRemoveStatementParsing(t *testing.T) {
+	// Test REMOVE statement parsing
+	testCases := []struct {
+		input        string
+		expectedType string
+		expectedAll  bool
+		description  string
+	}{
+		{"REMOVE ALL;", "", true, "REMOVE ALL"},
+		{"REMOVE PLACE_6;", "PLACE_6", false, "REMOVE specific bet type"},
+		{"REMOVE FIELD;", "FIELD", false, "REMOVE FIELD"},
+		{"REMOVE HARD_8;", "HARD_8", false, "REMOVE HARD_8"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			lexer := NewLexer(tc.input)
+			parser := NewParser(lexer)
+
+			program := parser.ParseProgram()
+
+			if len(program.Statements) != 1 {
+				t.Fatalf("Expected 1 statement, got %d", len(program.Statements))
+			}
+
+			stmt, ok := program.Statements[0].(*RemoveStatement)
+			if !ok {
+				t.Fatalf("Expected RemoveStatement, got %T", program.Statements[0])
+			}
+
+			if tc.expectedAll {
+				if stmt.BetType != nil {
+					t.Errorf("Expected BetType to be nil for REMOVE ALL, got %v", stmt.BetType)
+				}
+			} else {
+				if stmt.BetType == nil {
+					t.Errorf("Expected BetType to be set for %s, got nil", tc.expectedType)
+				} else {
+					betTypeString, err := BetTypeToString(stmt.BetType.Type)
+					if err != nil {
+						t.Errorf("Failed to convert bet type to string: %v", err)
+					}
+					if betTypeString != tc.expectedType {
+						t.Errorf("Expected bet type %s, got %s", tc.expectedType, betTypeString)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveCommandExecution(t *testing.T) {
+	// Test full REMOVE command execution through interpreter
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Place some bets
+	_, err := PlaceBet(table, "player1", "PLACE_6", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+
+	// Test REMOVE ALL execution
+	result, err := ExecuteString("REMOVE ALL;", table)
+	if err != nil {
+		t.Fatalf("Failed to execute REMOVE ALL: %v", err)
+	}
+
+	if len(result) == 0 {
+		t.Error("Expected result from REMOVE ALL execution")
+	}
+
+	// Verify bet is removed
+	player, _ := GetPlayer(table, "player1")
+	if len(player.Bets) != 0 {
+		t.Errorf("Expected 0 bets after REMOVE ALL execution, got %d", len(player.Bets))
+	}
+
+	// Place another bet and test specific removal
+	_, err = PlaceBet(table, "player1", "FIELD", 10.0)
+	if err != nil {
+		t.Fatalf("Failed to place FIELD bet: %v", err)
+	}
+
+	result2, err2 := ExecuteString("REMOVE FIELD;", table)
+	if err2 != nil {
+		t.Fatalf("Failed to execute REMOVE FIELD: %v", err2)
+	}
+
+	if len(result2) == 0 {
+		t.Error("Expected result from REMOVE FIELD execution")
+	}
+
+	// Verify FIELD bet is removed
+	player, _ = GetPlayer(table, "player1")
+	if len(player.Bets) != 0 {
+		t.Errorf("Expected 0 bets after REMOVE FIELD execution, got %d", len(player.Bets))
+	}
+}
+
+func TestRemoveEdgeCases(t *testing.T) {
+	// Test edge cases for REMOVE command
+	table := NewTable(5.0, 1000.0, 3)
+
+	// Test removing when no players exist
+	_, err := ExecuteString("REMOVE ALL;", table)
+	if err == nil {
+		t.Error("Expected error when removing bets with no players")
+	}
+
+	// Test removing when no bets exist
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+	_, err = ExecuteString("REMOVE ALL;", table)
+	if err != nil {
+		t.Fatalf("Unexpected error when removing with no bets: %v", err)
+	}
+
+	// Test removing non-existent bet type (should return error)
+	_, err = ExecuteString("REMOVE INVALID_BET;", table)
+	if err == nil {
+		t.Error("Expected error when removing non-existent bet type")
+	}
+
+	// Test removing specific bet type when none exist
+	_, err = ExecuteString("REMOVE PLACE_6;", table)
+	if err != nil {
+		t.Fatalf("Unexpected error when removing non-existent PLACE_6: %v", err)
+	}
+
+	// Verify no bets were removed (since none existed)
+	player, _ := GetPlayer(table, "player1")
+	if len(player.Bets) != 0 {
+		t.Errorf("Expected 0 bets, got %d", len(player.Bets))
+	}
+}
+
+func TestRemoveWithNonWorkingBets(t *testing.T) {
+	// Test that only working bets are removed
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Place a bet
+	_, err := PlaceBet(table, "player1", "PLACE_6", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+
+	// Manually set bet to non-working (simulating resolved bet)
+	player, _ := GetPlayer(table, "player1")
+	player.Bets[0].Working = false
+
+	// Execute REMOVE ALL
+	result, err := ExecuteString("REMOVE ALL;", table)
+	if err != nil {
+		t.Fatalf("Failed to execute REMOVE ALL: %v", err)
+	}
+
+	// Verify result indicates no bets were removed
+	if len(result) == 0 {
+		t.Error("Expected result from REMOVE ALL")
+	}
+	if !strings.Contains(strings.Join(result, " "), "Removed 0 bets") {
+		t.Errorf("Expected 'Removed 0 bets' message, got %v", result)
+	}
+
+	// Verify bet is still there (since it was non-working)
+	if len(player.Bets) != 1 {
+		t.Errorf("Expected 1 bet to remain (non-working), got %d", len(player.Bets))
+	}
+}
+
+func TestRemoveCommandWithMultiplePlayers(t *testing.T) {
+	// Test REMOVE command with multiple players
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player 1", 1000.0)
+	AddPlayer(table, "player2", "Test Player 2", 1000.0)
+
+	// Place bets for both players
+	_, err := PlaceBet(table, "player1", "PLACE_6", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place bet for player1: %v", err)
+	}
+	_, err = PlaceBet(table, "player2", "FIELD", 10.0)
+	if err != nil {
+		t.Fatalf("Failed to place bet for player2: %v", err)
+	}
+
+	// Execute REMOVE ALL for player1 only
+	result, err := ExecuteStringForPlayer("REMOVE ALL;", table, "player1")
+	if err != nil {
+		t.Fatalf("Failed to execute REMOVE ALL: %v", err)
+	}
+
+	// Verify result
+	if len(result) == 0 {
+		t.Error("Expected result from REMOVE ALL")
+	}
+
+	// Verify player1's bet is removed
+	player1, _ := GetPlayer(table, "player1")
+	if len(player1.Bets) != 0 {
+		t.Errorf("Expected 0 bets for player1, got %d", len(player1.Bets))
+	}
+
+	// Verify player2's bet remains
+	player2, _ := GetPlayer(table, "player2")
+	if len(player2.Bets) != 1 {
+		t.Errorf("Expected 1 bet for player2, got %d", len(player2.Bets))
+	}
+	if len(player2.Bets) > 0 && player2.Bets[0].Type != "FIELD" {
+		t.Errorf("Expected FIELD bet for player2, got %s", player2.Bets[0].Type)
+	}
+}
+
+func TestRemoveCommandErrorHandling(t *testing.T) {
+	// Test error handling for malformed REMOVE commands
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Test malformed REMOVE command (missing semicolon)
+	_, err := ExecuteString("REMOVE ALL", table)
+	if err == nil {
+		t.Error("Expected error for malformed REMOVE command")
+	}
+
+	// Test malformed REMOVE command (invalid bet type) - should return parse error
+	_, err = ExecuteString("REMOVE INVALID_BET_TYPE;", table)
+	if err == nil {
+		t.Error("Expected error for invalid bet type")
+	}
+
+	// Test empty REMOVE command
+	_, err = ExecuteString("REMOVE;", table)
+	if err == nil {
+		t.Error("Expected error for empty REMOVE command")
+	}
+}
+
+func TestRemoveCommandIntegration(t *testing.T) {
+	// Test integration of REMOVE command with other commands
+	table := NewTable(5.0, 1000.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Execute a sequence of commands
+	commands := []string{
+		"PLACE $24 ON PLACE_6;",
+		"PLACE $10 ON FIELD;",
+		"SHOW BETS;",
+		"REMOVE PLACE_6;",
+		"SHOW BETS;",
+		"REMOVE ALL;",
+		"SHOW BETS;",
+	}
+
+	for i, cmd := range commands {
+		_, err := ExecuteString(cmd, table)
+		if err != nil {
+			t.Fatalf("Failed to execute command %d (%s): %v", i+1, cmd, err)
+		}
+	}
+
+	// Verify final state
+	player, _ := GetPlayer(table, "player1")
+	if len(player.Bets) != 0 {
+		t.Errorf("Expected 0 bets at end of integration test, got %d", len(player.Bets))
 	}
 }

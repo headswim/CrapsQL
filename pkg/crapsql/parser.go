@@ -774,9 +774,14 @@ func (p *Parser) parseRemoveStatement() *RemoveStatement {
 
 	p.nextToken() // consume REMOVE
 
-	if !p.expectPeek(ALL) {
-		// Try to parse specific bet type
+	// Check if the current token is ALL
+	if p.curTokenIs(ALL) {
+		// REMOVE ALL case - BetType remains nil
+		// Don't advance past ALL, let expectPeek handle the semicolon
+	} else {
+		// REMOVE <bet_type> case - parse the bet type
 		stmt.BetType = p.parseBetTypeExpression()
+		// Do NOT advance past the bet type here
 	}
 
 	if !p.expectPeek(SEMICOLON) {

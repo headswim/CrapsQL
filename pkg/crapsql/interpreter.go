@@ -30,13 +30,7 @@ func (i *Interpreter) Execute(program *Program) ([]string, error) {
 	for _, stmt := range program.Statements {
 		result, err := i.executeStatement(stmt)
 		if err != nil {
-			// Use error recovery to handle interpreter errors gracefully
-			recoveryResult := handleInterpreterError(i, err)
-			if recoveryResult != "" {
-				results = append(results, recoveryResult)
-			}
-			// Continue execution instead of stopping on first error
-			continue
+			return results, err
 		}
 		if result != "" {
 			results = append(results, result)
@@ -629,27 +623,32 @@ func (i *Interpreter) executeRemoveStatement(stmt *RemoveStatement) (string, err
 	if stmt.BetType == nil {
 		// REMOVE ALL
 		removedCount := 0
+		var remainingBets []*crapsgame.Bet
 		for _, bet := range player.Bets {
 			if bet.Working {
-				bet.Working = false
 				player.Bankroll += bet.Amount
 				removedCount++
+			} else {
+				remainingBets = append(remainingBets, bet)
 			}
 		}
+		player.Bets = remainingBets
 		return fmt.Sprintf("✅ Removed %d bets", removedCount), nil
 	}
 
 	// Remove specific bet type
 	betType := i.betTypeToString(stmt.BetType.Type)
 	removedCount := 0
+	var remainingBets []*crapsgame.Bet
 	for _, bet := range player.Bets {
 		if bet.Type == betType && bet.Working {
-			bet.Working = false
 			player.Bankroll += bet.Amount
 			removedCount++
+		} else {
+			remainingBets = append(remainingBets, bet)
 		}
 	}
-
+	player.Bets = remainingBets
 	return fmt.Sprintf("✅ Removed %d %s bets", removedCount, betType), nil
 }
 
@@ -663,7 +662,6 @@ func (i *Interpreter) executeRemoveStatementForPlayer(stmt *RemoveStatement, pla
 		// Remove all bets for the player
 		removedCount := 0
 		var remainingBets []*crapsgame.Bet
-
 		for _, bet := range player.Bets {
 			if bet.Working {
 				player.Bankroll += bet.Amount
@@ -672,7 +670,6 @@ func (i *Interpreter) executeRemoveStatementForPlayer(stmt *RemoveStatement, pla
 				remainingBets = append(remainingBets, bet)
 			}
 		}
-
 		player.Bets = remainingBets
 		return fmt.Sprintf("Removed %d bets for player %s", removedCount, playerID), nil
 	}
@@ -680,7 +677,6 @@ func (i *Interpreter) executeRemoveStatementForPlayer(stmt *RemoveStatement, pla
 	betType := i.betTypeToString(stmt.BetType.Type)
 	removedCount := 0
 	var remainingBets []*crapsgame.Bet
-
 	for _, bet := range player.Bets {
 		if bet.Type == betType && bet.Working {
 			player.Bankroll += bet.Amount
@@ -689,7 +685,6 @@ func (i *Interpreter) executeRemoveStatementForPlayer(stmt *RemoveStatement, pla
 			remainingBets = append(remainingBets, bet)
 		}
 	}
-
 	player.Bets = remainingBets
 	return fmt.Sprintf("Removed %d %s bets for player %s", removedCount, betType, playerID), nil
 }

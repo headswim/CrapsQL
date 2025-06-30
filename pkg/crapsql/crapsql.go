@@ -2,6 +2,7 @@ package crapsql
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/headswim/CrapsQL/pkg/crapsgame"
 )
@@ -26,7 +27,29 @@ func NewTable(minBet, maxBet float64, maxOdds int) *Table {
 // ExecuteString is a convenience function to execute CrapsQL commands
 func ExecuteString(input string, table *Table) ([]string, error) {
 	interpreter := NewInterpreter(table)
-	return interpreter.ExecuteString(input)
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	program := parser.ParseProgram()
+
+	if len(parser.Errors()) > 0 {
+		return nil, fmt.Errorf("parse errors: %s", strings.Join(parser.Errors(), "; "))
+	}
+
+	return interpreter.Execute(program)
+}
+
+// ExecuteStringForPlayer is a convenience function to execute CrapsQL commands for a specific player
+func ExecuteStringForPlayer(input string, table *Table, playerID string) ([]string, error) {
+	interpreter := NewInterpreter(table)
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	program := parser.ParseProgram()
+
+	if len(parser.Errors()) > 0 {
+		return nil, fmt.Errorf("parse errors: %s", strings.Join(parser.Errors(), "; "))
+	}
+
+	return interpreter.ExecuteForPlayer(program, playerID)
 }
 
 // RollDice rolls the dice and resolves all bets
