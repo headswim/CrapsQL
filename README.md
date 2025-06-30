@@ -58,7 +58,7 @@ END;
 
 **Bet Management:**
 ```sql
-REMOVE ALL PLACE_6;
+REMOVE ALL; || REMOVE PLACE_6;
 PRESS PLACE_8 BY $10;
 TURN OFF HARD_8;
 ```
