@@ -3410,11 +3410,14 @@ func TestSHOWPOINTCommand(t *testing.T) {
 		t.Error("Expected result from SHOW POINT command")
 	}
 
-	// Establish a point by rolling dice
-	roll := RollDice(table)
-	if roll.Total == 7 || roll.Total == 11 {
-		// Roll again to get a point number
+	// Establish a point by rolling dice until a point is set
+	var roll *Roll
+	for {
 		roll = RollDice(table)
+		if roll.Total == 4 || roll.Total == 5 || roll.Total == 6 || roll.Total == 8 || roll.Total == 9 || roll.Total == 10 {
+			break
+		}
+		// If 7, 11, 2, 3, 12, keep rolling
 	}
 
 	// Test with point established
@@ -3426,11 +3429,9 @@ func TestSHOWPOINTCommand(t *testing.T) {
 		t.Error("Expected result from SHOW POINT command with point established")
 	}
 
-	// Verify point is set (if not 7 or 11)
-	if roll.Total != 7 && roll.Total != 11 {
-		if table.Point == crapsgame.PointOff {
-			t.Error("Expected point to be established")
-		}
+	// Verify point is set
+	if table.Point == crapsgame.PointOff {
+		t.Error("Expected point to be established")
 	}
 }
 
@@ -4083,5 +4084,52 @@ func TestRemoveCommandIntegration(t *testing.T) {
 	player, _ := GetPlayer(table, "player1")
 	if len(player.Bets) != 0 {
 		t.Errorf("Expected 0 bets at end of integration test, got %d", len(player.Bets))
+	}
+}
+
+func TestPlaceBetsAreRemovedAfterSevenOut(t *testing.T) {
+	table := NewTable(5.0, 100.0, 3)
+	AddPlayer(table, "player1", "Test Player", 1000.0)
+
+	// Place multiple place bets
+	_, err := PlaceBet(table, "player1", "PLACE_6", 24.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "PLACE_8", 25.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_8 bet: %v", err)
+	}
+	_, err = PlaceBet(table, "player1", "PLACE_9", 25.0)
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_9 bet: %v", err)
+	}
+
+	player, _ := GetPlayer(table, "player1")
+	if len(player.Bets) != 3 {
+		t.Fatalf("Expected 3 place bets, got %d", len(player.Bets))
+	}
+
+	// Establish a point (roll until point is set)
+	for {
+		roll := RollDice(table)
+		if roll.Total == 4 || roll.Total == 5 || roll.Total == 6 || roll.Total == 8 || roll.Total == 9 || roll.Total == 10 {
+			break
+		}
+	}
+
+	// Simulate a roll of 7 (seven-out)
+	roll := &Roll{Die1: 3, Die2: 4, Total: 7, IsHard: false}
+	table.BetResolver.ResolveBets(roll)
+
+	// All place bets should be removed
+	player, _ = GetPlayer(table, "player1")
+	for _, bet := range player.Bets {
+		if strings.HasPrefix(bet.Type, "PLACE_") {
+			t.Errorf("Expected all place bets to be removed after seven-out, but found: %s", bet.Type)
+		}
+	}
+	if len(player.Bets) != 0 {
+		t.Errorf("Expected 0 bets after seven-out, got %d", len(player.Bets))
 	}
 }

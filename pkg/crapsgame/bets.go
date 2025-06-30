@@ -159,19 +159,31 @@ func (br *BetResolution) resolveAlwaysWorkingBet(bet *Bet, betDef CanonicalBetDe
 	switch betDef.Category {
 	case "Line Bets":
 		result := br.resolveLineBet(bet, betDef, roll, player)
-		br.persistAlwaysWorkingBet(bet)
+		// Only persist if bet didn't win or lose (result is empty)
+		if result == "" {
+			br.persistAlwaysWorkingBet(bet)
+		}
 		return result
 	case "Come Bets":
 		result := br.resolveComeBet(bet, betDef, roll, player)
-		br.persistAlwaysWorkingBet(bet)
+		// Only persist if bet didn't win or lose (result is empty)
+		if result == "" {
+			br.persistAlwaysWorkingBet(bet)
+		}
 		return result
 	case "Odds Bets":
 		result := br.resolveOddsBet(bet, betDef, roll, player)
-		br.persistAlwaysWorkingBet(bet)
+		// Only persist if bet didn't win or lose (result is empty)
+		if result == "" {
+			br.persistAlwaysWorkingBet(bet)
+		}
 		return result
 	case "Place Bets", "Buy Bets", "Lay Bets", "Place-to-Lose Bets":
 		result := br.resolvePlaceStyleBet(bet, betDef, roll, player)
-		br.persistAlwaysWorkingBet(bet)
+		// Only persist if bet didn't win or lose (result is empty)
+		if result == "" {
+			br.persistAlwaysWorkingBet(bet)
+		}
 		return result
 	case "Hard Way Bets":
 		result := br.resolveHardWayBet(bet, betDef, roll, player)
@@ -183,29 +195,47 @@ func (br *BetResolution) resolveAlwaysWorkingBet(bet *Bet, betDef CanonicalBetDe
 		return result
 	case "Big Bets":
 		result := br.resolveBigBetWithDef(bet, betDef, roll, player)
-		br.persistAlwaysWorkingBet(bet)
+		// Only persist if bet didn't win or lose (result is empty)
+		if result == "" {
+			br.persistAlwaysWorkingBet(bet)
+		}
 		return result
 	case "Horn Bets":
 		switch bet.Type {
 		case "HORN":
 			result := br.resolveHornBet(bet, roll, player)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HORN_HIGH_2":
 			result := br.resolveHornHighBet(bet, roll, player, 2)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HORN_HIGH_3":
 			result := br.resolveHornHighBet(bet, roll, player, 3)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HORN_HIGH_11":
 			result := br.resolveHornHighBet(bet, roll, player, 11)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HORN_HIGH_12":
 			result := br.resolveHornHighBet(bet, roll, player, 12)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		default:
 			return fmt.Sprintf("Unknown horn bet type: %s", bet.Type)
@@ -214,11 +244,17 @@ func (br *BetResolution) resolveAlwaysWorkingBet(bet *Bet, betDef CanonicalBetDe
 		switch bet.Type {
 		case "WORLD":
 			result := br.resolveWorldBet(bet, roll, player)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "C_AND_E":
 			result := br.resolveCAndE(bet, roll, player)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		default:
 			return fmt.Sprintf("Unknown combination bet type: %s", bet.Type)
@@ -227,19 +263,31 @@ func (br *BetResolution) resolveAlwaysWorkingBet(bet *Bet, betDef CanonicalBetDe
 		switch bet.Type {
 		case "HORN_HIGH_2":
 			result := br.resolveHornHighBet(bet, roll, player, 2)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HORN_HIGH_3":
 			result := br.resolveHornHighBet(bet, roll, player, 3)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HORN_HIGH_11":
 			result := br.resolveHornHighBet(bet, roll, player, 11)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HORN_HIGH_12":
 			result := br.resolveHornHighBet(bet, roll, player, 12)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		default:
 			return fmt.Sprintf("Unknown horn high bet type: %s", bet.Type)
@@ -248,70 +296,119 @@ func (br *BetResolution) resolveAlwaysWorkingBet(bet *Bet, betDef CanonicalBetDe
 		switch betDef.Name {
 		case "HOP_1_2":
 			result := br.resolveHopBet(bet, roll, player, 1, 2)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_1_3":
 			result := br.resolveHopBet(bet, roll, player, 1, 3)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_1_4":
 			result := br.resolveHopBet(bet, roll, player, 1, 4)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_1_5":
 			result := br.resolveHopBet(bet, roll, player, 1, 5)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_1_6":
 			result := br.resolveHopBet(bet, roll, player, 1, 6)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_2_3":
 			result := br.resolveHopBet(bet, roll, player, 2, 3)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_2_4":
 			result := br.resolveHopBet(bet, roll, player, 2, 4)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_2_5":
 			result := br.resolveHopBet(bet, roll, player, 2, 5)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_2_6":
 			result := br.resolveHopBet(bet, roll, player, 2, 6)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_3_4":
 			result := br.resolveHopBet(bet, roll, player, 3, 4)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_3_5":
 			result := br.resolveHopBet(bet, roll, player, 3, 5)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_3_6":
 			result := br.resolveHopBet(bet, roll, player, 3, 6)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_4_5":
 			result := br.resolveHopBet(bet, roll, player, 4, 5)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_4_6":
 			result := br.resolveHopBet(bet, roll, player, 4, 6)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		case "HOP_5_6":
 			result := br.resolveHopBet(bet, roll, player, 5, 6)
-			br.persistAlwaysWorkingBet(bet)
+			// Only persist if bet didn't win or lose (result is empty)
+			if result == "" {
+				br.persistAlwaysWorkingBet(bet)
+			}
 			return result
 		default:
 			return fmt.Sprintf("Unknown hop bet type: %s", betDef.Name)
 		}
 	default:
+		// For any other bet types, use the generic resolver
 		result := br.resolveGenericBet(bet, betDef, roll, player)
-		br.persistAlwaysWorkingBet(bet)
+		// Only persist if bet didn't win or lose (result is empty)
+		if result == "" {
+			br.persistAlwaysWorkingBet(bet)
+		}
 		return result
 	}
 }
