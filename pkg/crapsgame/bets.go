@@ -1556,9 +1556,34 @@ func (br *BetResolution) cleanupResolvedBets() {
 				continue
 			}
 
-			// Check if bet should remain active
-			if bet.Working {
-				activeBets = append(activeBets, bet)
+			// Get bet definition to check if this is a place-style bet
+			betDef, exists := CanonicalBetDefinitions[bet.Type]
+			if !exists {
+				// Remove unknown bet types
+				continue
+			}
+
+			// Special handling for place bets, buy bets, lay bets, and place-to-lose bets
+			// These bets should be returned to the player when they're "off" during come-out
+			if betDef.Category == PlaceBets || betDef.Category == BuyBets || betDef.Category == LayBets || betDef.Category == PlaceToLoseBets {
+				if !bet.Working && br.table.State == StateComeOut {
+					// Place-style bet is "off" during come-out phase
+					// Return the bet amount to the player's bankroll
+					player.Bankroll += bet.Amount
+					// Don't add to activeBets - the bet is effectively removed
+				} else if bet.Working {
+					// Bet is working, keep it
+					activeBets = append(activeBets, bet)
+				} else {
+					// Bet is not working and we're not in come-out phase
+					// This means it lost (7 was rolled), so remove it
+					// Don't add to activeBets
+				}
+			} else {
+				// For other bet types, only keep them if they're working
+				if bet.Working {
+					activeBets = append(activeBets, bet)
+				}
 			}
 		}
 
