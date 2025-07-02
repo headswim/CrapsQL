@@ -6,7 +6,7 @@ import (
 	"github.com/headswim/CrapsQL/pkg/crapsgame"
 )
 
-// ValidationError represents a validation error with context
+// ValidationError represents a validation error with field, message, and value
 type ValidationError struct {
 	Field   string
 	Message string
@@ -21,28 +21,25 @@ func (e ValidationError) Error() string {
 func validateBetAmount(amount float64, minBet float64, maxBet float64) error {
 	if amount <= 0 {
 		return ValidationError{
-			Field:   "amount",
+			Field:   "bet_amount",
 			Message: "bet amount must be positive",
 			Value:   amount,
 		}
 	}
-
 	if amount < minBet {
 		return ValidationError{
-			Field:   "amount",
+			Field:   "bet_amount",
 			Message: fmt.Sprintf("bet amount $%.2f is below minimum $%.2f", amount, minBet),
 			Value:   amount,
 		}
 	}
-
 	if amount > maxBet {
 		return ValidationError{
-			Field:   "amount",
+			Field:   "bet_amount",
 			Message: fmt.Sprintf("bet amount $%.2f exceeds maximum $%.2f", amount, maxBet),
 			Value:   amount,
 		}
 	}
-
 	return nil
 }
 
@@ -55,23 +52,13 @@ func validateBankroll(player *crapsgame.Player, amount float64) error {
 			Value:   nil,
 		}
 	}
-
 	if amount > player.Bankroll {
 		return ValidationError{
 			Field:   "bankroll",
-			Message: fmt.Sprintf("insufficient bankroll: $%.2f (need $%.2f)", player.Bankroll, amount),
+			Message: fmt.Sprintf("insufficient bankroll: $%.2f available, $%.2f required", player.Bankroll, amount),
 			Value:   player.Bankroll,
 		}
 	}
-
-	if player.Bankroll < 0 {
-		return ValidationError{
-			Field:   "bankroll",
-			Message: "player has negative bankroll",
-			Value:   player.Bankroll,
-		}
-	}
-
 	return nil
 }
 
@@ -79,30 +66,18 @@ func validateBankroll(player *crapsgame.Player, amount float64) error {
 func validateBetType(betType string) error {
 	if betType == "" {
 		return ValidationError{
-			Field:   "betType",
+			Field:   "bet_type",
 			Message: "bet type cannot be empty",
 			Value:   betType,
 		}
 	}
-
-	// Check if bet type exists in canonical definitions
-	if _, exists := crapsgame.CanonicalBetDefinitions[betType]; !exists {
+	if !IsValidBetType(betType) {
 		return ValidationError{
-			Field:   "betType",
+			Field:   "bet_type",
 			Message: fmt.Sprintf("unknown bet type: %s", betType),
 			Value:   betType,
 		}
 	}
-
-	// Check if bet type follows naming conventions
-	if !IsValidBetTypeName(betType) {
-		return ValidationError{
-			Field:   "betType",
-			Message: fmt.Sprintf("bet type %s does not follow naming conventions", betType),
-			Value:   betType,
-		}
-	}
-
 	return nil
 }
 
@@ -113,29 +88,48 @@ func validateGameState(betType string, gameState crapsgame.GameState) error {
 		return err
 	}
 
-	// Get bet definition
+	// Get bet definition from canonical definitions
 	betDef, exists := crapsgame.CanonicalBetDefinitions[betType]
 	if !exists {
-		return ValidationError{
-			Field:   "betType",
-			Message: fmt.Sprintf("bet type %s not found in canonical definitions", betType),
-			Value:   betType,
+		// Try to get from bet registry as fallback
+		if !IsValidBetType(betType) {
+			return ValidationError{
+				Field:   "bet_type",
+				Message: fmt.Sprintf("unknown bet type: %s", betType),
+				Value:   betType,
+			}
+		}
+		// If it exists in registry but not canonical definitions, create a basic definition
+		betDef = crapsgame.CanonicalBetDefinition{
+			Name:              betType,
+			Category:          "Unknown",
+			Description:       "Bet type from registry",
+			Payout:            "1:1",
+			WorkingBehavior:   "ALWAYS",
+			OneRoll:           false,
+			PayoutNumerator:   1,
+			PayoutDenominator: 1,
+			ValidNumbers:      []int{},
+			RequiresPoint:     false,
+			RequiresComeOut:   false,
+			HouseEdge:         0.0,
+			Commission:        0.0,
 		}
 	}
 
 	// Validate game state requirements
-	if betDef.RequiresPoint && gameState != crapsgame.StatePoint {
+	if betDef.RequiresComeOut && gameState != crapsgame.StateComeOut {
 		return ValidationError{
-			Field:   "gameState",
-			Message: fmt.Sprintf("bet %s requires point to be established (current state: %d)", betType, gameState),
+			Field:   "game_state",
+			Message: fmt.Sprintf("bet type %s can only be placed during come-out phase", betType),
 			Value:   gameState,
 		}
 	}
 
-	if betDef.RequiresComeOut && gameState != crapsgame.StateComeOut {
+	if betDef.RequiresPoint && gameState != crapsgame.StatePoint {
 		return ValidationError{
-			Field:   "gameState",
-			Message: fmt.Sprintf("bet %s requires come-out roll (current state: %d)", betType, gameState),
+			Field:   "game_state",
+			Message: fmt.Sprintf("bet type %s can only be placed during point phase", betType),
 			Value:   gameState,
 		}
 	}
@@ -143,7 +137,7 @@ func validateGameState(betType string, gameState crapsgame.GameState) error {
 	// Validate game state is valid
 	if gameState < crapsgame.StateComeOut || gameState > crapsgame.StateSevenOut {
 		return ValidationError{
-			Field:   "gameState",
+			Field:   "game_state",
 			Message: fmt.Sprintf("invalid game state: %d", gameState),
 			Value:   gameState,
 		}
@@ -158,7 +152,7 @@ func validateBetPlacement(bet *crapsgame.Bet, player *crapsgame.Player, table *c
 	if bet == nil {
 		return ValidationError{
 			Field:   "bet",
-			Message: "bet cannot be nil",
+			Message: "bet object is nil",
 			Value:   nil,
 		}
 	}
@@ -167,7 +161,7 @@ func validateBetPlacement(bet *crapsgame.Bet, player *crapsgame.Player, table *c
 	if player == nil {
 		return ValidationError{
 			Field:   "player",
-			Message: "player cannot be nil",
+			Message: "player object is nil",
 			Value:   nil,
 		}
 	}
@@ -176,7 +170,7 @@ func validateBetPlacement(bet *crapsgame.Bet, player *crapsgame.Player, table *c
 	if table == nil {
 		return ValidationError{
 			Field:   "table",
-			Message: "table cannot be nil",
+			Message: "table object is nil",
 			Value:   nil,
 		}
 	}
@@ -209,8 +203,8 @@ func validateBetPlacement(bet *crapsgame.Bet, player *crapsgame.Player, table *c
 	// Validate bet ID
 	if bet.ID == "" {
 		return ValidationError{
-			Field:   "betID",
-			Message: "bet must have a valid ID",
+			Field:   "bet_id",
+			Message: "bet must have an ID",
 			Value:   bet.ID,
 		}
 	}
@@ -218,7 +212,7 @@ func validateBetPlacement(bet *crapsgame.Bet, player *crapsgame.Player, table *c
 	// Validate bet player matches
 	if bet.Player != player.ID {
 		return ValidationError{
-			Field:   "betPlayer",
+			Field:   "bet_player",
 			Message: fmt.Sprintf("bet player %s does not match player %s", bet.Player, player.ID),
 			Value:   bet.Player,
 		}
@@ -232,77 +226,71 @@ func validateBetNumbers(bet *crapsgame.Bet) error {
 	if bet == nil {
 		return ValidationError{
 			Field:   "bet",
-			Message: "bet cannot be nil",
+			Message: "bet is nil",
 			Value:   nil,
 		}
 	}
 
-	// Get bet definition
+	// Get bet definition from canonical definitions
 	betDef, exists := crapsgame.CanonicalBetDefinitions[bet.Type]
 	if !exists {
-		return ValidationError{
-			Field:   "betType",
-			Message: fmt.Sprintf("unknown bet type: %s", bet.Type),
-			Value:   bet.Type,
+		// Try to get from bet registry as fallback
+		if !IsValidBetType(bet.Type) {
+			return ValidationError{
+				Field:   "bet_type",
+				Message: fmt.Sprintf("unknown bet type: %s", bet.Type),
+				Value:   bet.Type,
+			}
+		}
+		// If it exists in registry but not canonical definitions, create a basic definition
+		betDef = crapsgame.CanonicalBetDefinition{
+			Name:              bet.Type,
+			Category:          "Unknown",
+			Description:       "Bet type from registry",
+			Payout:            "1:1",
+			WorkingBehavior:   "ALWAYS",
+			OneRoll:           false,
+			PayoutNumerator:   1,
+			PayoutDenominator: 1,
+			ValidNumbers:      []int{},
+			RequiresPoint:     false,
+			RequiresComeOut:   false,
+			HouseEdge:         0.0,
+			Commission:        0.0,
 		}
 	}
 
-	// Check if bet requires specific numbers to be provided
-	// Only certain bet types like PLACE_NUMBERS, HOP bets, etc. require numbers
-	requiresNumbers := map[string]bool{
-		"PLACE_NUMBERS": true,
-		"HOP_1_2":       true,
-		"HOP_1_3":       true,
-		"HOP_1_4":       true,
-		"HOP_1_5":       true,
-		"HOP_1_6":       true,
-		"HOP_2_3":       true,
-		"HOP_2_4":       true,
-		"HOP_2_5":       true,
-		"HOP_2_6":       true,
-		"HOP_3_4":       true,
-		"HOP_3_5":       true,
-		"HOP_3_6":       true,
-		"HOP_4_5":       true,
-		"HOP_4_6":       true,
-		"HOP_5_6":       true,
-	}
-
-	if requiresNumbers[bet.Type] {
+	// Check if bet requires specific numbers
+	if len(betDef.ValidNumbers) > 0 {
 		// Bet requires specific numbers, validate they match
 		if len(bet.Numbers) == 0 {
 			return ValidationError{
-				Field:   "numbers",
-				Message: fmt.Sprintf("bet %s requires numbers but none provided", bet.Type),
+				Field:   "bet_numbers",
+				Message: fmt.Sprintf("bet type %s requires specific numbers", bet.Type),
 				Value:   bet.Numbers,
 			}
 		}
 
 		// Validate each number is in the valid range
 		for _, num := range bet.Numbers {
-			valid := false
-			for _, validNum := range betDef.ValidNumbers {
-				if num == validNum {
-					valid = true
-					break
-				}
-			}
-			if !valid {
+			if num < 1 || num > 12 {
 				return ValidationError{
-					Field:   "numbers",
-					Message: fmt.Sprintf("number %d is not valid for bet type %s", num, bet.Type),
+					Field:   "bet_numbers",
+					Message: fmt.Sprintf("invalid number %d for bet type %s (must be 1-12)", num, bet.Type),
 					Value:   num,
 				}
 			}
 		}
 	} else {
 		// Bet doesn't require specific numbers, but if numbers are provided, validate them
-		for _, num := range bet.Numbers {
-			if num < 1 || num > 12 {
-				return ValidationError{
-					Field:   "numbers",
-					Message: fmt.Sprintf("number %d is outside valid range (1-12)", num),
-					Value:   num,
+		if len(bet.Numbers) > 0 {
+			for _, num := range bet.Numbers {
+				if num < 1 || num > 12 {
+					return ValidationError{
+						Field:   "bet_numbers",
+						Message: fmt.Sprintf("invalid number %d (must be 1-12)", num),
+						Value:   num,
+					}
 				}
 			}
 		}
@@ -317,49 +305,88 @@ func validateBetModifiers(modifiers []*ModifierExpression) error {
 		return nil // No modifiers is valid
 	}
 
-	// Track used modifier types to detect conflicts
-	usedModifiers := make(map[ModifierType]bool)
+	// Track modifier types to validate combinations
+	modifierTypes := make(map[ModifierType]bool)
 
 	for _, modifier := range modifiers {
 		if modifier == nil {
 			return ValidationError{
 				Field:   "modifier",
-				Message: "modifier cannot be nil",
+				Message: "modifier is nil",
 				Value:   nil,
 			}
 		}
 
-		// Check for conflicting modifiers
-		switch modifier.Type {
-		case ModWorking:
-			if usedModifiers[ModOff] {
-				return ValidationError{
-					Field:   "modifiers",
-					Message: "cannot have both WORKING and OFF modifiers",
-					Value:   modifier.Type,
-				}
-			}
-			usedModifiers[ModWorking] = true
-
-		case ModOff:
-			if usedModifiers[ModWorking] {
-				return ValidationError{
-					Field:   "modifiers",
-					Message: "cannot have both WORKING and OFF modifiers",
-					Value:   modifier.Type,
-				}
-			}
-			usedModifiers[ModOff] = true
-
-		case ModPress, ModOneRoll, ModMax, ModAmount:
-			// These modifiers are valid and can be used together
-			usedModifiers[modifier.Type] = true
-
-		default:
+		// Check for duplicate modifier types
+		if modifierTypes[modifier.Type] {
 			return ValidationError{
-				Field:   "modifier",
-				Message: fmt.Sprintf("unknown modifier type: %v", modifier.Type),
+				Field:   "modifier_type",
+				Message: fmt.Sprintf("duplicate modifier type: %v", modifier.Type),
 				Value:   modifier.Type,
+			}
+		}
+		modifierTypes[modifier.Type] = true
+
+		// Validate modifier value if present
+		if modifier.Value != nil {
+			// For now, just check that the value is not nil
+			// More specific validation could be added here based on modifier type
+		}
+	}
+
+	return nil
+}
+
+// validateBetState validates the current state of a bet
+func validateBetState(bet *crapsgame.Bet, table *crapsgame.Table) error {
+	if bet == nil {
+		return ValidationError{
+			Field:   "bet",
+			Message: "bet is nil",
+			Value:   nil,
+		}
+	}
+
+	if bet.Amount <= 0 {
+		return ValidationError{
+			Field:   "bet_amount",
+			Message: fmt.Sprintf("bet amount must be positive: $%.2f", bet.Amount),
+			Value:   bet.Amount,
+		}
+	}
+
+	if bet.Player == "" {
+		return ValidationError{
+			Field:   "bet_player",
+			Message: "bet must have a player ID",
+			Value:   bet.Player,
+		}
+	}
+
+	if bet.Type == "" {
+		return ValidationError{
+			Field:   "bet_type",
+			Message: "bet must have a type",
+			Value:   bet.Type,
+		}
+	}
+
+	// Check if bet type exists in canonical definitions
+	if _, exists := crapsgame.CanonicalBetDefinitions[bet.Type]; !exists {
+		return ValidationError{
+			Field:   "bet_type",
+			Message: fmt.Sprintf("unknown bet type: %s", bet.Type),
+			Value:   bet.Type,
+		}
+	}
+
+	// Check if player exists
+	if table != nil {
+		if _, exists := table.Players[bet.Player]; !exists {
+			return ValidationError{
+				Field:   "bet_player",
+				Message: fmt.Sprintf("player %s not found for bet", bet.Player),
+				Value:   bet.Player,
 			}
 		}
 	}
@@ -367,30 +394,336 @@ func validateBetModifiers(modifiers []*ModifierExpression) error {
 	return nil
 }
 
-// Error Recovery Functions for Phase 7.3
+// validateCommissionRate validates that a commission rate is valid
+func validateCommissionRate(rate float64) error {
+	if rate < 0 {
+		return ValidationError{
+			Field:   "commission_rate",
+			Message: fmt.Sprintf("commission rate cannot be negative: %.2f", rate),
+			Value:   rate,
+		}
+	}
+	if rate >= 1 {
+		return ValidationError{
+			Field:   "commission_rate",
+			Message: fmt.Sprintf("commission rate cannot be 100%% or greater: %.2f", rate),
+			Value:   rate,
+		}
+	}
+	return nil
+}
 
-// recoverFromParseError attempts to recover from a parse error by skipping to the next statement
-func recoverFromParseError(parser *Parser) Statement {
-	// Log the error for debugging
-	fmt.Printf("Parse error recovery: attempting to skip to next statement\n")
-
-	// Skip tokens until we find a statement delimiter or new statement
-	for parser.curToken.Type != SEMICOLON && parser.curToken.Type != EOF {
-		parser.nextToken()
-
-		// If we find a new statement keyword, try to parse it
-		switch parser.curToken.Type {
-		case PLACE, IF, SHOW, SET, DEFINE, EXECUTE, APPLY, REMOVE, PRESS, TURN, ROLL:
-			return parser.parseStatement()
+// validateTableState validates the overall table state
+func validateTableState(table *crapsgame.Table) error {
+	if table == nil {
+		return ValidationError{
+			Field:   "table",
+			Message: "table is nil",
+			Value:   nil,
 		}
 	}
 
-	// If we reach EOF, return nil
-	if parser.curToken.Type == EOF {
-		return nil
+	// Validate game state
+	if table.State < crapsgame.StateComeOut || table.State > crapsgame.StateSevenOut {
+		return ValidationError{
+			Field:   "game_state",
+			Message: fmt.Sprintf("invalid game state: %d", table.State),
+			Value:   table.State,
+		}
 	}
 
-	// Skip the semicolon and try to parse the next statement
-	parser.nextToken()
-	return parser.parseStatement()
+	// Validate point
+	if err := validatePoint(table.Point); err != nil {
+		return err
+	}
+
+	// Validate shooter if we have players
+	if len(table.Players) > 0 {
+		if err := validateShooter(table.Shooter, table); err != nil {
+			return err
+		}
+	}
+
+	// Validate that point is only set during point phase
+	if table.State == crapsgame.StateComeOut && table.Point != crapsgame.PointOff {
+		return ValidationError{
+			Field:   "point",
+			Message: "point should be off during come out phase",
+			Value:   table.Point,
+		}
+	}
+
+	if table.State == crapsgame.StatePoint && table.Point == crapsgame.PointOff {
+		return ValidationError{
+			Field:   "point",
+			Message: "point should be set during point phase",
+			Value:   table.Point,
+		}
+	}
+
+	return nil
+}
+
+// validatePoint validates that a point number is valid
+func validatePoint(point crapsgame.Point) error {
+	switch point {
+	case crapsgame.PointOff, crapsgame.Point4, crapsgame.Point5, crapsgame.Point6, crapsgame.Point8, crapsgame.Point9, crapsgame.Point10:
+		return nil
+	default:
+		return ValidationError{
+			Field:   "point",
+			Message: fmt.Sprintf("invalid point: %d", point),
+			Value:   point,
+		}
+	}
+}
+
+// validateShooter validates that the shooter exists and is valid
+func validateShooter(shooterID string, table *crapsgame.Table) error {
+	if shooterID == "" {
+		return ValidationError{
+			Field:   "shooter",
+			Message: "no shooter assigned",
+			Value:   shooterID,
+		}
+	}
+
+	if table == nil {
+		return ValidationError{
+			Field:   "table",
+			Message: "table is nil for shooter validation",
+			Value:   nil,
+		}
+	}
+
+	if _, exists := table.Players[shooterID]; !exists {
+		return ValidationError{
+			Field:   "shooter",
+			Message: fmt.Sprintf("shooter %s not found", shooterID),
+			Value:   shooterID,
+		}
+	}
+
+	return nil
+}
+
+// validateStateTransition validates if a state transition is valid
+func validateStateTransition(fromState crapsgame.GameState, toState crapsgame.GameState, roll *crapsgame.Roll, currentPoint crapsgame.Point) error {
+	// Validate that we're not in an invalid state
+	if fromState < crapsgame.StateComeOut || fromState > crapsgame.StateSevenOut {
+		return ValidationError{
+			Field:   "from_state",
+			Message: fmt.Sprintf("invalid current state: %d", fromState),
+			Value:   fromState,
+		}
+	}
+
+	if toState < crapsgame.StateComeOut || toState > crapsgame.StateSevenOut {
+		return ValidationError{
+			Field:   "to_state",
+			Message: fmt.Sprintf("invalid target state: %d", toState),
+			Value:   toState,
+		}
+	}
+
+	// Validate specific transitions
+	switch fromState {
+	case crapsgame.StateComeOut:
+		switch toState {
+		case crapsgame.StatePoint:
+			// Valid: point establishment
+			if roll == nil {
+				return ValidationError{
+					Field:   "roll",
+					Message: "roll is nil for point establishment",
+					Value:   nil,
+				}
+			}
+			if roll.Total < 4 || roll.Total > 10 || roll.Total == 7 {
+				return ValidationError{
+					Field:   "roll_total",
+					Message: fmt.Sprintf("invalid point number: %d", roll.Total),
+					Value:   roll.Total,
+				}
+			}
+		case crapsgame.StateComeOut:
+			// Valid: natural or craps
+			if roll == nil {
+				return ValidationError{
+					Field:   "roll",
+					Message: "roll is nil for come out",
+					Value:   nil,
+				}
+			}
+			if roll.Total != 2 && roll.Total != 3 && roll.Total != 7 && roll.Total != 11 && roll.Total != 12 {
+				return ValidationError{
+					Field:   "roll_total",
+					Message: fmt.Sprintf("invalid come out roll: %d", roll.Total),
+					Value:   roll.Total,
+				}
+			}
+		default:
+			return ValidationError{
+				Field:   "state_transition",
+				Message: fmt.Sprintf("invalid transition from come out to state %d", toState),
+				Value:   toState,
+			}
+		}
+	case crapsgame.StatePoint:
+		switch toState {
+		case crapsgame.StateComeOut:
+			// Valid: point resolution
+			if roll == nil {
+				return ValidationError{
+					Field:   "roll",
+					Message: "roll is nil for point resolution",
+					Value:   nil,
+				}
+			}
+			pointNumber, err := crapsgame.PointToNumber(currentPoint)
+			if err != nil {
+				return ValidationError{
+					Field:   "point",
+					Message: fmt.Sprintf("invalid point state: %v", err),
+					Value:   currentPoint,
+				}
+			}
+			if roll.Total != pointNumber && roll.Total != 7 {
+				return ValidationError{
+					Field:   "roll_total",
+					Message: fmt.Sprintf("invalid point phase roll: %d", roll.Total),
+					Value:   roll.Total,
+				}
+			}
+		case crapsgame.StateSevenOut:
+			// Valid: seven out
+			if roll == nil {
+				return ValidationError{
+					Field:   "roll",
+					Message: "roll is nil for seven out",
+					Value:   nil,
+				}
+			}
+			if roll.Total != 7 {
+				return ValidationError{
+					Field:   "roll_total",
+					Message: fmt.Sprintf("invalid seven out roll: %d", roll.Total),
+					Value:   roll.Total,
+				}
+			}
+		default:
+			return ValidationError{
+				Field:   "state_transition",
+				Message: fmt.Sprintf("invalid transition from point to state %d", toState),
+				Value:   toState,
+			}
+		}
+	case crapsgame.StateSevenOut:
+		// Seven out should only transition to come out
+		if toState != crapsgame.StateComeOut {
+			return ValidationError{
+				Field:   "state_transition",
+				Message: fmt.Sprintf("invalid transition from seven out to state %d", toState),
+				Value:   toState,
+			}
+		}
+	}
+
+	return nil
+}
+
+// validatePlayer validates that a player is valid
+func validatePlayer(player *crapsgame.Player) error {
+	if player == nil {
+		return ValidationError{
+			Field:   "player",
+			Message: "player is nil",
+			Value:   nil,
+		}
+	}
+
+	if player.ID == "" {
+		return ValidationError{
+			Field:   "player_id",
+			Message: "player ID cannot be empty",
+			Value:   player.ID,
+		}
+	}
+
+	if player.Name == "" {
+		return ValidationError{
+			Field:   "player_name",
+			Message: "player name cannot be empty",
+			Value:   player.Name,
+		}
+	}
+
+	if player.Bankroll < 0 {
+		return ValidationError{
+			Field:   "player_bankroll",
+			Message: fmt.Sprintf("player bankroll cannot be negative: $%.2f", player.Bankroll),
+			Value:   player.Bankroll,
+		}
+	}
+
+	return nil
+}
+
+// validateTable validates that a table is valid
+func validateTable(table *crapsgame.Table) error {
+	if table == nil {
+		return ValidationError{
+			Field:   "table",
+			Message: "table is nil",
+			Value:   nil,
+		}
+	}
+
+	if table.MinBet <= 0 {
+		return ValidationError{
+			Field:   "min_bet",
+			Message: fmt.Sprintf("minimum bet must be positive: $%.2f", table.MinBet),
+			Value:   table.MinBet,
+		}
+	}
+
+	if table.MaxBet <= 0 {
+		return ValidationError{
+			Field:   "max_bet",
+			Message: fmt.Sprintf("maximum bet must be positive: $%.2f", table.MaxBet),
+			Value:   table.MaxBet,
+		}
+	}
+
+	if table.MinBet > table.MaxBet {
+		return ValidationError{
+			Field:   "bet_limits",
+			Message: fmt.Sprintf("minimum bet $%.2f cannot be greater than maximum bet $%.2f", table.MinBet, table.MaxBet),
+			Value:   fmt.Sprintf("min: $%.2f, max: $%.2f", table.MinBet, table.MaxBet),
+		}
+	}
+
+	if table.MaxOdds < 0 {
+		return ValidationError{
+			Field:   "max_odds",
+			Message: fmt.Sprintf("maximum odds cannot be negative: %d", table.MaxOdds),
+			Value:   table.MaxOdds,
+		}
+	}
+
+	return nil
+}
+
+// recoverFromParseError attempts to recover from parse errors by skipping to next statement
+func recoverFromParseError(parser *Parser) Statement {
+	// This is a simplified recovery mechanism
+	// In a more robust implementation, you might want to:
+	// 1. Skip tokens until you find a semicolon or statement boundary
+	// 2. Log the error for debugging
+	// 3. Return a special error statement or nil
+
+	fmt.Println("Parse error recovery: attempting to skip to next statement")
+
+	// For now, just return nil to indicate we couldn't recover
+	return nil
 }

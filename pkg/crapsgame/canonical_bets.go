@@ -178,7 +178,7 @@ var CanonicalBetDefinitions = map[string]CanonicalBetDefinition{
 		OneRoll:           true,
 		PayoutNumerator:   1, // Default, but 2 and 12 are special
 		PayoutDenominator: 1,
-		ValidNumbers:      []int{2, 3, 4, 9, 10, 11, 12},
+		ValidNumbers:      []int{}, // Field bets don't require specific numbers from player
 		RequiresPoint:     false,
 		RequiresComeOut:   false,
 		HouseEdge:         2.78,

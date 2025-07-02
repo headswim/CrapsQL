@@ -67,8 +67,10 @@ func (br *BetResolution) validateCommissionRate(rate float64) error {
 func (br *BetResolution) ResolveBets(roll *Roll) []string {
 	var results []string
 
+	// Update working status before bet resolution
 	br.updateBetWorkingStatus()
 
+	// Process all bets
 	for _, player := range br.table.Players {
 		for _, bet := range player.Bets {
 			// Validate bet state before processing
@@ -88,6 +90,7 @@ func (br *BetResolution) ResolveBets(roll *Roll) []string {
 		}
 	}
 
+	// Clean up resolved bets
 	br.cleanupResolvedBets()
 
 	return results
@@ -112,7 +115,9 @@ func (br *BetResolution) resolveBet(bet *Bet, roll *Roll, player *Player) string
 		return br.resolveOneRollBet(bet, betDef, roll, player)
 	}
 
-	return br.resolveAlwaysWorkingBet(bet, betDef, roll, player)
+	result := br.resolveAlwaysWorkingBet(bet, betDef, roll, player)
+	fmt.Printf("DEBUG: Bet %s resolved with result: '%s', Working: %v, Bankroll: %.2f\n", bet.Type, result, bet.Working, player.Bankroll)
+	return result
 }
 
 func (br *BetResolution) shouldBetBeWorking(bet *Bet, betDef CanonicalBetDefinition) bool {
@@ -133,10 +138,46 @@ func (br *BetResolution) resolveOneRollBet(bet *Bet, betDef CanonicalBetDefiniti
 		return fmt.Sprintf("Invalid bet state: %v", err)
 	}
 
+	// Special handling for field bets
+	if bet.Type == "FIELD" {
+		return br.resolveField(bet, roll, player)
+	}
+
+	// Special handling for any seven bets
+	if bet.Type == "ANY_SEVEN" {
+		return br.resolveAnySeven(bet, roll, player)
+	}
+
+	// Special handling for any craps bets
+	if bet.Type == "ANY_CRAPS" {
+		return br.resolveAnyCraps(bet, roll, player)
+	}
+
+	// Special handling for eleven bets
+	if bet.Type == "ELEVEN" {
+		return br.resolveEleven(bet, roll, player)
+	}
+
+	// Special handling for ace-deuce bets
+	if bet.Type == "ACE_DEUCE" {
+		return br.resolveAceDeuce(bet, roll, player)
+	}
+
+	// Special handling for aces bets
+	if bet.Type == "ACES" {
+		return br.resolveAces(bet, roll, player)
+	}
+
+	// Special handling for boxcars bets
+	if bet.Type == "BOXCARS" {
+		return br.resolveBoxcars(bet, roll, player)
+	}
+
+	// Generic one-roll bet resolution
 	for _, validNum := range betDef.ValidNumbers {
 		if roll.Total == validNum {
 			winnings := (bet.Amount * float64(betDef.PayoutNumerator)) / float64(betDef.PayoutDenominator)
-			player.Bankroll += winnings
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 
 			br.setBetWorking(bet, false)
 			br.removeOneRollBet(bet)
@@ -156,13 +197,20 @@ func (br *BetResolution) resolveAlwaysWorkingBet(bet *Bet, betDef CanonicalBetDe
 		return fmt.Sprintf("Invalid bet state: %v", err)
 	}
 
+	fmt.Printf("DEBUG: resolveAlwaysWorkingBet - Bet: %s, Category: %s\n", bet.Type, betDef.Category)
+
 	switch betDef.Category {
 	case "Line Bets":
+		fmt.Printf("DEBUG: Routing to resolveLineBet\n")
 		result := br.resolveLineBet(bet, betDef, roll, player)
 		// Only persist if bet didn't win or lose (result is empty)
 		if result == "" {
 			br.persistAlwaysWorkingBet(bet)
+		} else {
+			// Bet was resolved (won or lost), set Working = false so it gets removed
+			fmt.Printf("DEBUG: Bet %s resolved with result: '%s', Working: %t, Bankroll: %.2f\n", bet.Type, result, bet.Working, player.Bankroll)
 		}
+		// Don't persist if bet was resolved (result is not empty)
 		return result
 	case "Come Bets":
 		result := br.resolveComeBet(bet, betDef, roll, player)
@@ -414,29 +462,32 @@ func (br *BetResolution) resolveAlwaysWorkingBet(bet *Bet, betDef CanonicalBetDe
 }
 
 func (br *BetResolution) resolveLineBet(bet *Bet, betDef CanonicalBetDefinition, roll *Roll, player *Player) string {
-	switch betDef.Name {
+	fmt.Printf("DEBUG: resolveLineBet called for bet type: %s\n", bet.Type)
+	switch bet.Type {
 	case "PASS_LINE":
+		fmt.Printf("DEBUG: Routing PASS_LINE to resolvePassLine\n")
 		return br.resolvePassLine(bet, roll, player)
 	case "DONT_PASS":
+		fmt.Printf("DEBUG: Routing DONT_PASS to resolveDontPass\n")
 		return br.resolveDontPass(bet, roll, player)
 	default:
-		return fmt.Sprintf("Unknown line bet type: %s", betDef.Name)
+		return fmt.Sprintf("Unknown line bet type: %s", bet.Type)
 	}
 }
 
 func (br *BetResolution) resolveComeBet(bet *Bet, betDef CanonicalBetDefinition, roll *Roll, player *Player) string {
-	switch betDef.Name {
+	switch bet.Type {
 	case "COME":
 		return br.resolveCome(bet, roll, player)
 	case "DONT_COME":
 		return br.resolveDontCome(bet, roll, player)
 	default:
-		return fmt.Sprintf("Unknown come bet type: %s", betDef.Name)
+		return fmt.Sprintf("Unknown come bet type: %s", bet.Type)
 	}
 }
 
 func (br *BetResolution) resolveOddsBet(bet *Bet, betDef CanonicalBetDefinition, roll *Roll, player *Player) string {
-	switch betDef.Name {
+	switch bet.Type {
 	case "PASS_ODDS":
 		return br.resolvePassOdds(bet, roll, player)
 	case "DONT_PASS_ODDS":
@@ -446,7 +497,7 @@ func (br *BetResolution) resolveOddsBet(bet *Bet, betDef CanonicalBetDefinition,
 	case "DONT_COME_ODDS":
 		return br.resolveDontComeOdds(bet, roll, player)
 	default:
-		return fmt.Sprintf("Unknown odds bet type: %s", betDef.Name)
+		return fmt.Sprintf("Unknown odds bet type: %s", bet.Type)
 	}
 }
 
@@ -530,13 +581,13 @@ func (br *BetResolution) resolveHardWayBet(bet *Bet, betDef CanonicalBetDefiniti
 }
 
 func (br *BetResolution) resolveBigBetWithDef(bet *Bet, betDef CanonicalBetDefinition, roll *Roll, player *Player) string {
-	switch betDef.Name {
-	case "Big 6":
+	switch bet.Type {
+	case "BIG_6":
 		return br.resolveBigBet(bet, roll, player, 6)
-	case "Big 8":
+	case "BIG_8":
 		return br.resolveBigBet(bet, roll, player, 8)
 	default:
-		return fmt.Sprintf("Unknown big bet type: %s", betDef.Name)
+		return fmt.Sprintf("Unknown big bet type: %s", bet.Type)
 	}
 }
 
@@ -675,23 +726,32 @@ func (br *BetResolution) resolveGenericBet(bet *Bet, betDef CanonicalBetDefiniti
 }
 
 func (br *BetResolution) resolvePassLine(bet *Bet, roll *Roll, player *Player) string {
+	fmt.Printf("DEBUG: resolvePassLine called - State: %s, Roll: %d, Point: %s, Player: %s, Bankroll: %.2f, BetAmount: %.2f\n", br.table.State.String(), roll.Total, br.table.Point.String(), player.Name, player.Bankroll, bet.Amount)
+
 	switch br.table.State {
 	case StateComeOut:
+		fmt.Printf("DEBUG: In come-out phase, roll: %d\n", roll.Total)
 		switch roll.Total {
 		case 7, 11:
 			winnings := bet.Amount
-			player.Bankroll += winnings
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 			bet.Working = false
+			fmt.Printf("DEBUG: Pass line wins natural, bankroll now: %.2f\n", player.Bankroll)
 			return fmt.Sprintf("🎉 Pass line wins $%.2f (Natural)", winnings)
 		case 2, 3, 12:
 			bet.Working = false
+			fmt.Printf("DEBUG: Pass line loses craps\n")
 			return fmt.Sprintf("💥 Pass line loses $%.2f (Craps)", bet.Amount)
+		default:
+			fmt.Printf("DEBUG: Pass line no resolution in come-out (roll: %d)\n", roll.Total)
+			return ""
 		}
-		return ""
 	case StatePoint:
+		fmt.Printf("DEBUG: In point phase, roll: %d, point: %s\n", roll.Total, br.table.Point.String())
 		switch roll.Total {
 		case 7:
 			bet.Working = false
+			fmt.Printf("DEBUG: Pass line loses seven out\n")
 			return fmt.Sprintf("💥 Pass line loses $%.2f (Seven out)", bet.Amount)
 		default:
 			pointNumber, err := PointToNumber(br.table.Point)
@@ -700,11 +760,16 @@ func (br *BetResolution) resolvePassLine(bet *Bet, roll *Roll, player *Player) s
 			}
 			if roll.Total == pointNumber {
 				winnings := bet.Amount
-				player.Bankroll += winnings
+				player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 				bet.Working = false
+				fmt.Printf("DEBUG: Pass line wins point made, bankroll now: %.2f\n", player.Bankroll)
 				return fmt.Sprintf("🎉 Pass line wins $%.2f (Point made)", winnings)
 			}
+			fmt.Printf("DEBUG: Pass line no resolution in point phase (roll: %d, point: %d)\n", roll.Total, pointNumber)
 		}
+		return ""
+	default:
+		fmt.Printf("DEBUG: Unknown state: %s\n", br.table.State.String())
 		return ""
 	}
 	return ""
@@ -719,12 +784,12 @@ func (br *BetResolution) resolveDontPass(bet *Bet, roll *Roll, player *Player) s
 			return fmt.Sprintf("💥 Don't pass loses $%.2f (Natural)", bet.Amount)
 		case 2, 3:
 			winnings := bet.Amount
-			player.Bankroll += winnings
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 			bet.Working = false
 			return fmt.Sprintf("🎉 Don't pass wins $%.2f (Craps)", winnings)
 		case 12:
 			bet.Working = false
-			player.Bankroll += bet.Amount
+			player.Bankroll += bet.Amount // Push returns original bet only
 			return fmt.Sprintf("🤝 Don't pass push $%.2f (12)", bet.Amount)
 		}
 		return ""
@@ -732,7 +797,7 @@ func (br *BetResolution) resolveDontPass(bet *Bet, roll *Roll, player *Player) s
 		switch roll.Total {
 		case 7:
 			winnings := bet.Amount
-			player.Bankroll += winnings
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 			bet.Working = false
 			return fmt.Sprintf("🎉 Don't pass wins $%.2f (Seven out)", winnings)
 		default:
@@ -751,110 +816,94 @@ func (br *BetResolution) resolveDontPass(bet *Bet, roll *Roll, player *Player) s
 }
 
 func (br *BetResolution) resolveField(bet *Bet, roll *Roll, player *Player) string {
-	winningNumbers := map[int]float64{
-		2:  2.0, // 2:1
-		3:  1.0, // 1:1
-		4:  1.0, // 1:1
-		9:  1.0, // 1:1
-		10: 1.0, // 1:1
-		11: 1.0, // 1:1
-		12: 2.0, // 2:1
-	}
-
-	if multiplier, wins := winningNumbers[roll.Total]; wins {
-		winnings := bet.Amount * multiplier
-		player.Bankroll += winnings
+	switch roll.Total {
+	case 2, 12:
+		winnings := bet.Amount * 2
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("🎉 Field wins $%.2f (%d)", winnings, roll.Total)
-	} else {
+		return fmt.Sprintf("🎉 Field wins $%.2f (2:1)", winnings)
+	case 3, 4, 9, 10, 11:
+		winnings := bet.Amount
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("💥 Field loses $%.2f (%d)", bet.Amount, roll.Total)
+		return fmt.Sprintf("🎉 Field wins $%.2f (1:1)", winnings)
+	default:
+		bet.Working = false
+		return fmt.Sprintf("💥 Field loses $%.2f", bet.Amount)
 	}
 }
 
 func (br *BetResolution) resolveAnySeven(bet *Bet, roll *Roll, player *Player) string {
-	switch roll.Total {
-	case 7:
-		winnings := bet.Amount * 4 // 4:1 payout
-		player.Bankroll += winnings
+	if roll.Total == 7 {
+		winnings := bet.Amount * 4
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("🎉 Any seven wins $%.2f", winnings)
-	default:
-		bet.Working = false
-		return fmt.Sprintf("💥 Any seven loses $%.2f", bet.Amount)
+		return fmt.Sprintf("🎉 Any seven wins $%.2f (4:1)", winnings)
 	}
+	bet.Working = false
+	return fmt.Sprintf("💥 Any seven loses $%.2f", bet.Amount)
 }
 
 func (br *BetResolution) resolveAnyCraps(bet *Bet, roll *Roll, player *Player) string {
-	switch roll.Total {
-	case 2, 3, 12:
-		winnings := bet.Amount * 7 // 7:1 payout
-		player.Bankroll += winnings
+	if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
+		winnings := bet.Amount * 7
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("🎉 Any craps wins $%.2f (%d)", winnings, roll.Total)
-	default:
-		bet.Working = false
-		return fmt.Sprintf("💥 Any craps loses $%.2f", bet.Amount)
+		return fmt.Sprintf("🎉 Any craps wins $%.2f (7:1)", winnings)
 	}
+	bet.Working = false
+	return fmt.Sprintf("💥 Any craps loses $%.2f", bet.Amount)
 }
 
 func (br *BetResolution) resolveEleven(bet *Bet, roll *Roll, player *Player) string {
-	switch roll.Total {
-	case 11:
-		winnings := bet.Amount * 15 // 15:1 payout
-		player.Bankroll += winnings
+	if roll.Total == 11 {
+		winnings := bet.Amount * 15
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("🎉 Eleven wins $%.2f", winnings)
-	default:
-		bet.Working = false
-		return fmt.Sprintf("💥 Eleven loses $%.2f", bet.Amount)
+		return fmt.Sprintf("🎉 Eleven wins $%.2f (15:1)", winnings)
 	}
+	bet.Working = false
+	return fmt.Sprintf("💥 Eleven loses $%.2f", bet.Amount)
 }
 
 func (br *BetResolution) resolveAceDeuce(bet *Bet, roll *Roll, player *Player) string {
-	switch roll.Total {
-	case 3:
-		winnings := bet.Amount * 15 // 15:1 payout
-		player.Bankroll += winnings
+	if roll.Total == 3 {
+		winnings := bet.Amount * 15
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("🎉 Ace-deuce wins $%.2f", winnings)
-	default:
-		bet.Working = false
-		return fmt.Sprintf("💥 Ace-deuce loses $%.2f", bet.Amount)
+		return fmt.Sprintf("🎉 Ace-deuce wins $%.2f (15:1)", winnings)
 	}
+	bet.Working = false
+	return fmt.Sprintf("💥 Ace-deuce loses $%.2f", bet.Amount)
 }
 
 func (br *BetResolution) resolveAces(bet *Bet, roll *Roll, player *Player) string {
-	switch roll.Total {
-	case 2:
-		winnings := bet.Amount * 30 // 30:1 payout
-		player.Bankroll += winnings
+	if roll.Total == 2 {
+		winnings := bet.Amount * 30
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("🎉 Aces wins $%.2f", winnings)
-	default:
-		bet.Working = false
-		return fmt.Sprintf("💥 Aces loses $%.2f", bet.Amount)
+		return fmt.Sprintf("🎉 Aces win $%.2f (30:1)", winnings)
 	}
+	bet.Working = false
+	return fmt.Sprintf("💥 Aces lose $%.2f", bet.Amount)
 }
 
 func (br *BetResolution) resolveBoxcars(bet *Bet, roll *Roll, player *Player) string {
-	switch roll.Total {
-	case 12:
-		winnings := bet.Amount * 30 // 30:1 payout
-		player.Bankroll += winnings
+	if roll.Total == 12 {
+		winnings := bet.Amount * 30
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		return fmt.Sprintf("🎉 Boxcars wins $%.2f", winnings)
-	default:
-		bet.Working = false
-		return fmt.Sprintf("💥 Boxcars loses $%.2f", bet.Amount)
+		return fmt.Sprintf("🎉 Boxcars win $%.2f (30:1)", winnings)
 	}
+	bet.Working = false
+	return fmt.Sprintf("💥 Boxcars lose $%.2f", bet.Amount)
 }
 
 func (br *BetResolution) resolvePlaceBet(bet *Bet, roll *Roll, player *Player, number, numerator, denominator int) string {
 	switch roll.Total {
 	case number:
 		winnings := (bet.Amount * float64(numerator)) / float64(denominator)
-		player.Bankroll += winnings
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		// Place bets continue working after they win - don't set Working = false
 		return fmt.Sprintf("🎉 Place %d wins $%.2f", number, winnings)
 	case 7:
@@ -869,20 +918,14 @@ func (br *BetResolution) resolveHardWay(bet *Bet, roll *Roll, player *Player, nu
 	switch {
 	case roll.Total == number && roll.IsHard:
 		winnings := (bet.Amount * float64(numerator)) / float64(denominator)
-		player.Bankroll += winnings
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
-		// Don't call removeOneRollBet - hard way bets are not one-roll bets
-		// They will be removed by cleanupResolvedBets() when Working = false
 		return fmt.Sprintf("🎉 Hard %d wins $%.2f", number, winnings)
 	case roll.Total == number && !roll.IsHard:
 		bet.Working = false
-		// Don't call removeOneRollBet - hard way bets are not one-roll bets
-		// They will be removed by cleanupResolvedBets() when Working = false
 		return fmt.Sprintf("💥 Hard %d loses $%.2f (Easy way)", number, bet.Amount)
 	case roll.Total == 7:
 		bet.Working = false
-		// Don't call removeOneRollBet - hard way bets are not one-roll bets
-		// They will be removed by cleanupResolvedBets() when Working = false
 		return fmt.Sprintf("💥 Hard %d loses $%.2f (Seven out)", number, bet.Amount)
 	default:
 		return ""
@@ -890,19 +933,19 @@ func (br *BetResolution) resolveHardWay(bet *Bet, roll *Roll, player *Player, nu
 }
 
 func (br *BetResolution) resolveWorldBet(bet *Bet, roll *Roll, player *Player) string {
+	betOn7 := bet.Amount * 4.0 / 5.0     // 4/5 of bet on 7
+	betOnCraps := bet.Amount * 1.0 / 5.0 // 1/5 of bet on craps
 	switch roll.Total {
 	case 7:
-		// World bet is split: 16.0 on any 7 (4:1), 4.0 on any craps (7:1)
 		// 4:1 payout for any 7 portion
-		winnings := 16.0 * 4.0 // 64.0
-		player.Bankroll += winnings
+		winnings := betOn7 * 4.0
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 World wins $%.2f", winnings)
 	case 2, 3, 12:
-		// World bet is split: 16.0 on any 7 (4:1), 4.0 on any craps (7:1)
 		// 7:1 payout for any craps portion
-		winnings := 4.0 * 7.0 // 28.0
-		player.Bankroll += winnings
+		winnings := betOnCraps * 7.0
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 World wins $%.2f", winnings)
 	default:
@@ -912,19 +955,19 @@ func (br *BetResolution) resolveWorldBet(bet *Bet, roll *Roll, player *Player) s
 }
 
 func (br *BetResolution) resolveCAndE(bet *Bet, roll *Roll, player *Player) string {
+	betOnEleven := bet.Amount / 2.0 // 1/2 of bet on eleven
+	betOnCraps := bet.Amount / 2.0  // 1/2 of bet on craps
 	switch roll.Total {
 	case 11:
-		// C_AND_E bet is split: 10.0 on eleven (15:1), 10.0 on any craps (7:1)
 		// 15:1 payout for eleven portion
-		winnings := 10.0 * 15.0 // 150.0
-		player.Bankroll += winnings
+		winnings := betOnEleven * 15.0
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 C and E wins $%.2f", winnings)
 	case 2, 3, 12:
-		// C_AND_E bet is split: 10.0 on eleven (15:1), 10.0 on any craps (7:1)
 		// 7:1 payout for any craps portion
-		winnings := 10.0 * 7.0 // 70.0
-		player.Bankroll += winnings
+		winnings := betOnCraps * 7.0
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 C and E wins $%.2f", winnings)
 	default:
@@ -938,23 +981,23 @@ func (br *BetResolution) resolveHornBet(bet *Bet, roll *Roll, player *Player) st
 
 	switch roll.Total {
 	case 2:
-		winnings := betPerNumber * 30 // 30:1 for aces
-		player.Bankroll += winnings
+		winnings := betPerNumber * 30            // 30:1 for aces
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Horn wins $%.2f (Aces)", winnings)
 	case 3:
-		winnings := betPerNumber * 15 // 15:1 for ace-deuce
-		player.Bankroll += winnings
+		winnings := betPerNumber * 15            // 15:1 for ace-deuce
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Horn wins $%.2f (Ace-deuce)", winnings)
 	case 11:
-		winnings := betPerNumber * 15 // 15:1 for eleven
-		player.Bankroll += winnings
+		winnings := betPerNumber * 15            // 15:1 for eleven
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Horn wins $%.2f (Eleven)", winnings)
 	case 12:
-		winnings := betPerNumber * 30 // 30:1 for boxcars
-		player.Bankroll += winnings
+		winnings := betPerNumber * 30            // 30:1 for boxcars
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Horn wins $%.2f (Boxcars)", winnings)
 	default:
@@ -969,7 +1012,7 @@ func (br *BetResolution) resolveCome(bet *Bet, roll *Roll, player *Player) strin
 		switch roll.Total {
 		case 7, 11:
 			winnings := bet.Amount
-			player.Bankroll += winnings
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 			bet.Working = false
 			return fmt.Sprintf("🎉 Come bet wins $%.2f (Natural)", winnings)
 		case 2, 3, 12:
@@ -990,7 +1033,7 @@ func (br *BetResolution) resolveCome(bet *Bet, roll *Roll, player *Player) strin
 			}
 			if roll.Total == pointNumber {
 				winnings := bet.Amount
-				player.Bankroll += winnings
+				player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 				bet.Working = false
 				return fmt.Sprintf("🎉 Come bet wins $%.2f (Point made)", winnings)
 			}
@@ -1009,21 +1052,20 @@ func (br *BetResolution) resolveDontCome(bet *Bet, roll *Roll, player *Player) s
 			return fmt.Sprintf("💥 Don't come loses $%.2f (Natural)", bet.Amount)
 		case 2, 3:
 			winnings := bet.Amount
-			player.Bankroll += winnings
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 			bet.Working = false
 			return fmt.Sprintf("🎉 Don't come wins $%.2f (Craps)", winnings)
 		case 12:
 			bet.Working = false
-			player.Bankroll += bet.Amount
+			player.Bankroll += bet.Amount // Push returns original bet only
 			return fmt.Sprintf("🤝 Don't come push $%.2f (12)", bet.Amount)
 		}
-		bet.Working = true
 		return ""
 	case StatePoint:
 		switch roll.Total {
 		case 7:
 			winnings := bet.Amount
-			player.Bankroll += winnings
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 			bet.Working = false
 			return fmt.Sprintf("🎉 Don't come wins $%.2f (Seven out)", winnings)
 		default:
@@ -1068,8 +1110,8 @@ func (br *BetResolution) resolvePlaceNumbers(bet *Bet, roll *Roll, player *Playe
 				continue
 			}
 			winnings := betPerNumber * payout[0] / payout[1]
-			player.Bankroll += winnings
-			bet.Working = false
+			player.Bankroll += bet.Amount + winnings // Return original bet + winnings
+			// Place bets continue working after they win - don't set Working = false
 			return fmt.Sprintf("🎉 Place numbers win $%.2f (%d)", winnings, num)
 		}
 	}
@@ -1082,13 +1124,13 @@ func (br *BetResolution) resolvePlaceInside(bet *Bet, roll *Roll, player *Player
 
 	switch roll.Total {
 	case 5, 9:
-		winnings := betPerNumber * 7.0 / 5.0 // 7:5 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 7.0 / 5.0     // 7:5 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Place inside wins $%.2f (%d)", winnings, roll.Total)
 	case 6, 8:
-		winnings := betPerNumber * 7.0 / 6.0 // 7:6 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 7.0 / 6.0     // 7:6 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Place inside wins $%.2f (%d)", winnings, roll.Total)
 	case 7:
@@ -1103,13 +1145,13 @@ func (br *BetResolution) resolvePlaceOutside(bet *Bet, roll *Roll, player *Playe
 
 	switch roll.Total {
 	case 4, 10:
-		winnings := betPerNumber * 9.0 / 5.0 // 9:5 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 9.0 / 5.0     // 9:5 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Place outside wins $%.2f (%d)", winnings, roll.Total)
 	case 5, 9:
-		winnings := betPerNumber * 7.0 / 5.0 // 7:5 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 7.0 / 5.0     // 7:5 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Place outside wins $%.2f (%d)", winnings, roll.Total)
 	case 7:
@@ -1124,23 +1166,23 @@ func (br *BetResolution) resolveAllHardways(bet *Bet, roll *Roll, player *Player
 
 	switch {
 	case roll.Total == 4 && roll.IsHard:
-		winnings := betPerNumber * 7.0 // 7:1 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 7.0           // 7:1 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 All hardways win $%.2f (Hard 4)", winnings)
 	case roll.Total == 6 && roll.IsHard:
-		winnings := betPerNumber * 9.0 // 9:1 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 9.0           // 9:1 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 All hardways win $%.2f (Hard 6)", winnings)
 	case roll.Total == 8 && roll.IsHard:
-		winnings := betPerNumber * 9.0 // 9:1 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 9.0           // 9:1 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 All hardways win $%.2f (Hard 8)", winnings)
 	case roll.Total == 10 && roll.IsHard:
-		winnings := betPerNumber * 7.0 // 7:1 payout
-		player.Bankroll += winnings
+		winnings := betPerNumber * 7.0           // 7:1 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 All hardways win $%.2f (Hard 10)", winnings)
 	case roll.Total == 7:
@@ -1154,8 +1196,8 @@ func (br *BetResolution) resolveAllHardways(bet *Bet, roll *Roll, player *Player
 func (br *BetResolution) resolveHopHard6(bet *Bet, roll *Roll, player *Player) string {
 	switch {
 	case roll.Total == 6 && roll.IsHard:
-		winnings := bet.Amount * 30.0 // 30:1 payout
-		player.Bankroll += winnings
+		winnings := bet.Amount * 30.0            // 30:1 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Hop hard 6 wins $%.2f", winnings)
 	default:
@@ -1168,8 +1210,8 @@ func (br *BetResolution) resolveHopHard6(bet *Bet, roll *Roll, player *Player) s
 func (br *BetResolution) resolveHopEasy8(bet *Bet, roll *Roll, player *Player) string {
 	switch {
 	case roll.Total == 8 && !roll.IsHard:
-		winnings := bet.Amount * 15.0 // 15:1 payout
-		player.Bankroll += winnings
+		winnings := bet.Amount * 15.0            // 15:1 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Hop easy 8 wins $%.2f", winnings)
 	default:
@@ -1180,15 +1222,15 @@ func (br *BetResolution) resolveHopEasy8(bet *Bet, roll *Roll, player *Player) s
 
 // resolveHopBet resolves hop bets (one-roll)
 func (br *BetResolution) resolveHopBet(bet *Bet, roll *Roll, player *Player, die1, die2 int) string {
-	// Check if roll matches the exact hop combination
-	if (roll.Die1 == die1 && roll.Die2 == die2) || (roll.Die1 == die2 && roll.Die2 == die1) {
-		// Exact combination wins
-		winnings := bet.Amount * 15.0 // 15:1 payout
-		player.Bankroll += winnings
+	// Check for exact dice combination (order matters for hop bets)
+	if roll.Die1 == die1 && roll.Die2 == die2 {
+		winnings := bet.Amount * 15.0            // 15:1 payout
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Hop %d-%d wins $%.2f", die1, die2, winnings)
 	} else {
-		// Any other roll loses
+		// For losing hop bets, the bet amount was already deducted when placed
+		// No need to deduct again, just mark as not working
 		bet.Working = false
 		return fmt.Sprintf("💥 Hop %d-%d loses $%.2f", die1, die2, bet.Amount)
 	}
@@ -1221,7 +1263,7 @@ func (br *BetResolution) resolvePassOdds(bet *Bet, roll *Roll, player *Player) s
 		}
 
 		winnings := bet.Amount * odds
-		player.Bankroll += winnings
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Pass odds win $%.2f (point made)", winnings)
 	case 7:
@@ -1261,7 +1303,7 @@ func (br *BetResolution) resolveDontPassOdds(bet *Bet, roll *Roll, player *Playe
 		}
 
 		winnings := bet.Amount * odds
-		player.Bankroll += winnings
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Don't pass odds win $%.2f (seven out)", winnings)
 	case pointNumber:
@@ -1294,7 +1336,6 @@ func (br *BetResolution) resolveDontComeOdds(bet *Bet, roll *Roll, player *Playe
 func (br *BetResolution) resolveBuyBet(bet *Bet, roll *Roll, player *Player, number int) string {
 	switch roll.Total {
 	case number:
-		// Buy bet wins - calculate true odds payout
 		var odds float64
 		switch number {
 		case 4, 10:
@@ -1306,19 +1347,15 @@ func (br *BetResolution) resolveBuyBet(bet *Bet, roll *Roll, player *Player, num
 		default:
 			return fmt.Sprintf("Invalid buy bet number: %d", number)
 		}
-
-		// Calculate winnings with commission using the new function
 		winnings := br.calculateWinningsWithCommission(bet.Amount, odds, BuyLayCommissionRate)
 		commissionMsg := br.formatCommissionMessage(bet.Amount, odds, BuyLayCommissionRate)
-		player.Bankroll += winnings
-		// Buy bets continue working after they win - don't set Working = false
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
+		bet.Working = false                      // Remove bet after win
 		return fmt.Sprintf("🎉 Buy %d wins $%.2f%s", number, winnings, commissionMsg)
 	case 7:
-		// Seven out - buy bet loses
 		bet.Working = false
 		return fmt.Sprintf("💥 Buy %d loses $%.2f", number, bet.Amount)
 	default:
-		// Other numbers - bet stays working
 		return ""
 	}
 }
@@ -1327,7 +1364,6 @@ func (br *BetResolution) resolveBuyBet(bet *Bet, roll *Roll, player *Player, num
 func (br *BetResolution) resolveLayBet(bet *Bet, roll *Roll, player *Player, number int) string {
 	switch roll.Total {
 	case 7:
-		// Seven out - lay bet wins
 		var odds float64
 		switch number {
 		case 4, 10:
@@ -1339,19 +1375,15 @@ func (br *BetResolution) resolveLayBet(bet *Bet, roll *Roll, player *Player, num
 		default:
 			return fmt.Sprintf("Invalid lay bet number: %d", number)
 		}
-
-		// Calculate winnings with commission using the new function
 		winnings := br.calculateWinningsWithCommission(bet.Amount, odds, BuyLayCommissionRate)
 		commissionMsg := br.formatCommissionMessage(bet.Amount, odds, BuyLayCommissionRate)
-		player.Bankroll += winnings
-		// Lay bets continue working after they win - don't set Working = false
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
+		bet.Working = false                      // Remove bet after win
 		return fmt.Sprintf("🎉 Lay %d wins $%.2f%s", number, winnings, commissionMsg)
 	case number:
-		// Number rolled - lay bet loses
 		bet.Working = false
 		return fmt.Sprintf("💥 Lay %d loses $%.2f", number, bet.Amount)
 	default:
-		// Other numbers - bet stays working
 		return ""
 	}
 }
@@ -1360,7 +1392,6 @@ func (br *BetResolution) resolveLayBet(bet *Bet, roll *Roll, player *Player, num
 func (br *BetResolution) resolvePlaceToLoseBet(bet *Bet, roll *Roll, player *Player, number int) string {
 	switch roll.Total {
 	case 7:
-		// Seven out - place-to-lose bet wins
 		var odds float64
 		switch number {
 		case 4, 10:
@@ -1372,18 +1403,14 @@ func (br *BetResolution) resolvePlaceToLoseBet(bet *Bet, roll *Roll, player *Pla
 		default:
 			return fmt.Sprintf("Invalid place-to-lose bet number: %d", number)
 		}
-
-		// Calculate winnings without commission
 		winnings := bet.Amount * odds
-		player.Bankroll += winnings
-		// Place-to-lose bets continue working after they win - don't set Working = false
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
+		bet.Working = false                      // Remove bet after win
 		return fmt.Sprintf("🎉 Place-to-lose %d wins $%.2f", number, winnings)
 	case number:
-		// Number rolled - place-to-lose bet loses
 		bet.Working = false
 		return fmt.Sprintf("💥 Place-to-lose %d loses $%.2f", number, bet.Amount)
 	default:
-		// Other numbers - bet stays working
 		return ""
 	}
 }
@@ -1404,13 +1431,13 @@ func (br *BetResolution) resolveHornHighBet(bet *Bet, roll *Roll, player *Player
 		}
 
 		winnings := bet.Amount * payout
-		player.Bankroll += winnings
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Horn High %d wins $%.2f", highNumber, winnings)
 	case 2, 3, 11, 12:
 		// Other horn numbers win with standard payout
-		winnings := bet.Amount * 3.0 // 3:1
-		player.Bankroll += winnings
+		winnings := bet.Amount * 3.0             // 3:1
+		player.Bankroll += bet.Amount + winnings // Return original bet + winnings
 		bet.Working = false
 		return fmt.Sprintf("🎉 Horn High %d wins $%.2f (horn number)", highNumber, winnings)
 	default:
@@ -1468,6 +1495,11 @@ func (br *BetResolution) persistAlwaysWorkingBet(bet *Bet) {
 		return
 	}
 
+	// NEVER reactivate a bet that has been set to Working = false by resolution
+	if !bet.Working {
+		return
+	}
+
 	// Always-working bets stay active unless explicitly removed
 	// This function ensures the bet remains in the player's bet list
 	// and maintains its working status for future rolls
@@ -1494,10 +1526,10 @@ func (br *BetResolution) checkConditionalBetState(bet *Bet, gameState GameState)
 	}
 
 	// Special handling for place bets, buy bets, lay bets, and place-to-lose bets
-	// These bets are off during come-out rolls and on during point phases
+	// These bets work during both come-out and point phases
 	if betDef.Category == PlaceBets || betDef.Category == BuyBets || betDef.Category == LayBets || betDef.Category == PlaceToLoseBets {
-		// These bets are only working during point phase
-		return gameState == StatePoint
+		// These bets work during both come-out and point phases
+		return true
 	}
 
 	// Check if bet requires specific game state
@@ -1548,46 +1580,34 @@ func (br *BetResolution) validateBetState(bet *Bet) error {
 func (br *BetResolution) cleanupResolvedBets() {
 	for _, player := range br.table.Players {
 		var activeBets []*Bet
+		fmt.Printf("DEBUG: Cleanup for player %s, starting with %d bets\n", player.ID, len(player.Bets))
 
 		for _, bet := range player.Bets {
 			// Validate bet state
 			if err := br.validateBetState(bet); err != nil {
 				// Remove invalid bets
+				fmt.Printf("DEBUG: Removing invalid bet %s: %v\n", bet.Type, err)
 				continue
 			}
 
-			// Get bet definition to check if this is a place-style bet
-			betDef, exists := CanonicalBetDefinitions[bet.Type]
-			if !exists {
+			// Validate bet type exists in canonical definitions
+			if _, exists := CanonicalBetDefinitions[bet.Type]; !exists {
 				// Remove unknown bet types
+				fmt.Printf("DEBUG: Removing unknown bet type %s\n", bet.Type)
 				continue
 			}
 
-			// Special handling for place bets, buy bets, lay bets, and place-to-lose bets
-			// These bets should be returned to the player when they're "off" during come-out
-			if betDef.Category == PlaceBets || betDef.Category == BuyBets || betDef.Category == LayBets || betDef.Category == PlaceToLoseBets {
-				if !bet.Working && br.table.State == StateComeOut {
-					// Place-style bet is "off" during come-out phase
-					// Return the bet amount to the player's bankroll
-					player.Bankroll += bet.Amount
-					// Don't add to activeBets - the bet is effectively removed
-				} else if bet.Working {
-					// Bet is working, keep it
-					activeBets = append(activeBets, bet)
-				} else {
-					// Bet is not working and we're not in come-out phase
-					// This means it lost (7 was rolled), so remove it
-					// Don't add to activeBets
-				}
+			// For all bet types, only keep them if they're working
+			if bet.Working {
+				activeBets = append(activeBets, bet)
+				fmt.Printf("DEBUG: Keeping working bet %s\n", bet.Type)
 			} else {
-				// For other bet types, only keep them if they're working
-				if bet.Working {
-					activeBets = append(activeBets, bet)
-				}
+				fmt.Printf("DEBUG: Removing non-working bet %s\n", bet.Type)
 			}
 		}
 
 		// Update player's bet list to only include active bets
+		fmt.Printf("DEBUG: Player %s now has %d active bets (was %d)\n", player.ID, len(activeBets), len(player.Bets))
 		player.Bets = activeBets
 	}
 }

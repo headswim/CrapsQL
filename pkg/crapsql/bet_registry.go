@@ -98,8 +98,16 @@ func initRegistry() {
 
 	// Buy/Lay
 	stringToBetType["BUY_4"] = BetBuy4
+	stringToBetType["BUY_5"] = BetBuy5
+	stringToBetType["BUY_6"] = BetBuy6
+	stringToBetType["BUY_8"] = BetBuy8
+	stringToBetType["BUY_9"] = BetBuy9
 	stringToBetType["BUY_10"] = BetBuy10
 	stringToBetType["LAY_4"] = BetLay4
+	stringToBetType["LAY_5"] = BetLay5
+	stringToBetType["LAY_6"] = BetLay6
+	stringToBetType["LAY_8"] = BetLay8
+	stringToBetType["LAY_9"] = BetLay9
 	stringToBetType["LAY_10"] = BetLay10
 
 	// Big 6/8
@@ -113,28 +121,15 @@ func initRegistry() {
 
 	// Horn bets
 	stringToBetType["HORN"] = BetHorn
+	stringToBetType["HORN_HIGH_2"] = BetHornHigh2
+	stringToBetType["HORN_HIGH_3"] = BetHornHigh3
 	stringToBetType["HORN_HIGH_11"] = BetHornHigh11
+	stringToBetType["HORN_HIGH_12"] = BetHornHigh12
 	stringToBetType["HORN_HIGH_ACE_DEUCE"] = BetHornHighAceDeuce
 
 	// Proposition bets
 	stringToBetType["WORLD"] = BetWorld
 	stringToBetType["C_AND_E"] = BetCAndE
-	stringToBetType["HORN_HIGH_2"] = BetHornHigh2
-	stringToBetType["HORN_HIGH_3"] = BetHornHigh3
-	stringToBetType["HORN_HIGH_12"] = BetHornHigh12
-
-	// Missing bet types from canonical definitions
-	// Buy bets
-	stringToBetType["BUY_5"] = BetBuy5
-	stringToBetType["BUY_6"] = BetBuy6
-	stringToBetType["BUY_8"] = BetBuy8
-	stringToBetType["BUY_9"] = BetBuy9
-
-	// Lay bets
-	stringToBetType["LAY_5"] = BetLay5
-	stringToBetType["LAY_6"] = BetLay6
-	stringToBetType["LAY_8"] = BetLay8
-	stringToBetType["LAY_9"] = BetLay9
 
 	// Place-to-lose bets
 	stringToBetType["PLACE_TO_LOSE_4"] = BetPlaceToLose4
@@ -143,12 +138,6 @@ func initRegistry() {
 	stringToBetType["PLACE_TO_LOSE_8"] = BetPlaceToLose8
 	stringToBetType["PLACE_TO_LOSE_9"] = BetPlaceToLose9
 	stringToBetType["PLACE_TO_LOSE_10"] = BetPlaceToLose10
-
-	// Horn high bets
-	stringToBetType["HORN_HIGH_2"] = BetHornHigh2
-	stringToBetType["HORN_HIGH_3"] = BetHornHigh3
-	stringToBetType["HORN_HIGH_11"] = BetHornHigh11
-	stringToBetType["HORN_HIGH_12"] = BetHornHigh12
 
 	// Hop bets (all combinations)
 	stringToBetType["HOP_1_2"] = BetHop12

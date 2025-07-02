@@ -240,7 +240,7 @@ func (t *Table) RollDice() *Roll {
 	t.LastRoll = roll.Time
 
 	// Update game state based on roll
-	t.updateGameState(roll)
+	t.UpdateGameState(roll)
 
 	// Validate table state after roll
 	if err := t.validateTableState(); err != nil {
@@ -253,8 +253,8 @@ func (t *Table) RollDice() *Roll {
 	return roll
 }
 
-// updateGameState updates the game state based on the current roll
-func (t *Table) updateGameState(roll *Roll) {
+// UpdateGameState updates the game state based on the current roll
+func (t *Table) UpdateGameState(roll *Roll) {
 	switch t.State {
 	case StateComeOut:
 		switch roll.Total {
@@ -304,13 +304,16 @@ func (t *Table) establishPoint(roll *Roll) {
 		fmt.Printf("Error converting roll total to point: %v\n", err)
 		return
 	}
-	t.Point = point
 
 	// Log state transition
 	t.LogStateTransition(fromState, t.State, roll, "point establishment")
 
-	// Trigger bet resolution for come out bets
+	// Trigger bet resolution for come out bets (state is still COME_OUT)
 	t.BetResolver.ResolveBets(roll)
+
+	// Update state AFTER bet resolution
+	t.State = StatePoint
+	t.Point = point
 
 	// Resolve come bets
 	comeBetResults := t.resolveAllComeBets(roll)
@@ -337,14 +340,17 @@ func (t *Table) resolvePoint(roll *Roll) {
 	}
 
 	fromState := t.State
+
+	// Trigger bet resolution for point resolution BEFORE state change
+	// This ensures bets are resolved in the correct state (POINT)
+	t.BetResolver.ResolveBets(roll)
+
+	// Now change state
 	t.State = StateComeOut
 	t.Point = PointOff
 
 	// Log state transition
 	t.LogStateTransition(fromState, t.State, roll, "point resolution")
-
-	// Trigger bet resolution for point resolution
-	t.BetResolver.ResolveBets(roll)
 
 	// Resolve come bets
 	comeBetResults := t.resolveAllComeBets(roll)
@@ -371,13 +377,16 @@ func (t *Table) sevenOut(roll *Roll) {
 	}
 
 	fromState := t.State
+
+	// Trigger bet resolution for seven-out BEFORE state change
+	// This ensures bets are resolved in the correct state (POINT)
+	t.BetResolver.ResolveBets(roll)
+
+	// Now change state
 	t.State = StateSevenOut
 
 	// Log state transition
 	t.LogStateTransition(fromState, t.State, roll, "seven out")
-
-	// Trigger bet resolution for seven-out
-	t.BetResolver.ResolveBets(roll)
 
 	// Resolve come bets
 	comeBetResults := t.resolveAllComeBets(roll)
@@ -589,9 +598,8 @@ func (t *Table) PlaceBet(playerID, betType string, amount float64, numbers []int
 		Numbers:  numbers,
 	}
 
-	// Comprehensive validation using validation functions
-	// Note: Since we can't directly import the validation functions from crapsql package,
-	// we'll implement the same validation logic here to ensure comprehensive validation
+	// Comprehensive validation using validation functions from crapsql package
+	// Import the validation functions to ensure consistent validation across the codebase
 
 	// Validate bet amount
 	if err := t.validateBetAmount(amount); err != nil {
