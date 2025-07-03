@@ -12,7 +12,7 @@ import (
 
 func TestTableCreationValidParameters(t *testing.T) {
 	// Test table creation with valid parameters
-	table := NewTable(5.0, 100.0, 3)
+	table := crapsgame.NewTable(5.0, 100.0, 3)
 
 	if table == nil {
 		t.Fatal("Table should not be nil")
@@ -48,7 +48,7 @@ func TestTableCreationInvalidParameters(t *testing.T) {
 	// Note: The current implementation doesn't validate negative values,
 	// but we should test that the table is still created
 
-	table := NewTable(-5.0, -100.0, -3)
+	table := crapsgame.NewTable(-5.0, -100.0, -3)
 
 	if table == nil {
 		t.Fatal("Table should not be nil even with invalid parameters")
@@ -70,9 +70,9 @@ func TestTableCreationInvalidParameters(t *testing.T) {
 
 func TestPlayerAdditionValidParameters(t *testing.T) {
 	// Test player addition with valid parameters
-	table := NewTable(5.0, 100.0, 3)
+	table := crapsgame.NewTable(5.0, 100.0, 3)
 
-	err := AddPlayer(table, "player1", "John", 1000.0)
+	err := table.AddPlayer("player1", "John", 1000.0)
 	if err != nil {
 		t.Fatalf("Failed to add player: %v", err)
 	}
@@ -118,22 +118,22 @@ func TestPlayerAdditionValidParameters(t *testing.T) {
 
 func TestPlayerAdditionInvalidParameters(t *testing.T) {
 	// Test player addition with invalid parameters (duplicate ID, negative bankroll)
-	table := NewTable(5.0, 100.0, 3)
+	table := crapsgame.NewTable(5.0, 100.0, 3)
 
 	// Add first player successfully
-	err := AddPlayer(table, "player1", "John", 1000.0)
+	err := table.AddPlayer("player1", "John", 1000.0)
 	if err != nil {
 		t.Fatalf("Failed to add first player: %v", err)
 	}
 
 	// Try to add duplicate ID
-	err = AddPlayer(table, "player1", "Jane", 500.0)
+	err = table.AddPlayer("player1", "Jane", 500.0)
 	if err == nil {
 		t.Error("Expected error when adding duplicate player ID")
 	}
 
 	// Try to add player with negative bankroll
-	err = AddPlayer(table, "player2", "Jane", -500.0)
+	err = table.AddPlayer("player2", "Jane", -500.0)
 	if err != nil {
 		t.Fatalf("Failed to add player with negative bankroll: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestPlayerAdditionInvalidParameters(t *testing.T) {
 	}
 
 	// Try to add player with empty ID
-	err = AddPlayer(table, "", "Empty", 100.0)
+	err = table.AddPlayer("", "Empty", 100.0)
 	if err != nil {
 		t.Fatalf("Failed to add player with empty ID: %v", err)
 	}
@@ -162,20 +162,20 @@ func TestPlayerAdditionInvalidParameters(t *testing.T) {
 
 func TestPlayerRemoval(t *testing.T) {
 	// Test player removal
-	table := NewTable(5.0, 100.0, 3)
+	table := crapsgame.NewTable(5.0, 100.0, 3)
 
 	// Add multiple players
-	err := AddPlayer(table, "player1", "John", 1000.0)
+	err := table.AddPlayer("player1", "John", 1000.0)
 	if err != nil {
 		t.Fatalf("Failed to add player1: %v", err)
 	}
 
-	err = AddPlayer(table, "player2", "Jane", 500.0)
+	err = table.AddPlayer("player2", "Jane", 500.0)
 	if err != nil {
 		t.Fatalf("Failed to add player2: %v", err)
 	}
 
-	err = AddPlayer(table, "player3", "Bob", 750.0)
+	err = table.AddPlayer("player3", "Bob", 750.0)
 	if err != nil {
 		t.Fatalf("Failed to add player3: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestPlayerRemoval(t *testing.T) {
 	}
 
 	// Remove player2
-	err = RemovePlayer(table, "player2")
+	err = table.RemovePlayer("player2")
 	if err != nil {
 		t.Fatalf("Failed to remove player2: %v", err)
 	}
@@ -210,18 +210,18 @@ func TestPlayerRemoval(t *testing.T) {
 	}
 
 	// Try to remove non-existent player
-	err = RemovePlayer(table, "nonexistent")
+	err = table.RemovePlayer("nonexistent")
 	if err == nil {
 		t.Error("Expected error when removing non-existent player")
 	}
 
 	// Remove all remaining players
-	err = RemovePlayer(table, "player1")
+	err = table.RemovePlayer("player1")
 	if err != nil {
 		t.Fatalf("Failed to remove player1: %v", err)
 	}
 
-	err = RemovePlayer(table, "player3")
+	err = table.RemovePlayer("player3")
 	if err != nil {
 		t.Fatalf("Failed to remove player3: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestPlayerRemoval(t *testing.T) {
 
 func TestTableStateInitialization(t *testing.T) {
 	// Test table state initialization (COME_OUT state, no point)
-	table := NewTable(5.0, 100.0, 3)
+	table := crapsgame.NewTable(5.0, 100.0, 3)
 
 	// Test initial game state
 	if table.State != crapsgame.StateComeOut {
@@ -268,29 +268,6 @@ func TestTableStateInitialization(t *testing.T) {
 
 	if len(table.Players) != 0 {
 		t.Errorf("Expected empty players map, got %d players", len(table.Players))
-	}
-
-	// Test initial come bets map
-	if table.ComeBets == nil {
-		t.Error("Expected come bets map to be initialized (not nil)")
-	}
-
-	if len(table.ComeBets) != 0 {
-		t.Errorf("Expected empty come bets map, got %d come bets", len(table.ComeBets))
-	}
-
-	// Test initial odds bets map
-	if table.OddsBets == nil {
-		t.Error("Expected odds bets map to be initialized (not nil)")
-	}
-
-	if len(table.OddsBets) != 0 {
-		t.Errorf("Expected empty odds bets map, got %d odds bets", len(table.OddsBets))
-	}
-
-	// Test bet resolver
-	if table.BetResolver == nil {
-		t.Error("Expected bet resolver to be initialized (not nil)")
 	}
 
 	// Test table limits
@@ -1184,14 +1161,14 @@ func TestBetTypeValidation(t *testing.T) {
 // 5.1 Line Bets
 func TestPASSLINEBetPlacement(t *testing.T) {
 	// Test PASS_LINE bet placement
-	table := NewTable(5.0, 1000.0, 3)
-	err := AddPlayer(table, "player1", "Test Player", 1000.0)
+	table := crapsgame.NewTable(5.0, 1000.0, 3)
+	err := table.AddPlayer("player1", "Test Player", 1000.0)
 	if err != nil {
 		t.Fatalf("Failed to add player: %v", err)
 	}
 
 	// Place pass line bet
-	bet, err := PlaceBet(table, "player1", "PASS_LINE", 25.0)
+	bet, err := table.PlaceBet("player1", "PASS_LINE", 25.0, []int{})
 	if err != nil {
 		t.Fatalf("Failed to place PASS_LINE bet: %v", err)
 	}
@@ -1211,7 +1188,7 @@ func TestPASSLINEBetPlacement(t *testing.T) {
 	}
 
 	// Verify player bankroll was deducted
-	player, err := GetPlayer(table, "player1")
+	player, err := table.GetPlayer("player1")
 	if err != nil {
 		t.Fatalf("Failed to get player: %v", err)
 	}

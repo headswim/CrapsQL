@@ -53,8 +53,6 @@ func IsValidBetType(betType string) bool {
 	return ok
 }
 
-// TODO: Add a function to initialize the registry from canonical bet types
-
 // initRegistry initializes the bet type registry with all canonical bet types
 func initRegistry() {
 	// Line Bets

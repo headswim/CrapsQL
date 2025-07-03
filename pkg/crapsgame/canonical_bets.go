@@ -23,7 +23,16 @@ const (
 	CombinationBets BetCategory = "Combination Bets"
 )
 
+// BetResolutionFunc defines the function signature for resolving a bet
+// Returns (win, payout, remove):
+//
+//	win: true if the bet wins on this roll
+//	payout: amount to pay (not including original bet)
+//	remove: true if the bet should be removed after this roll
+type BetResolutionFunc func(bet *Bet, roll *Roll, state GameState) (win bool, payout float64, remove bool)
+
 // CanonicalBetDefinition represents a complete bet definition with all necessary information
+// Now includes a Resolve function pointer for custom resolution logic
 type CanonicalBetDefinition struct {
 	Name              string
 	Category          BetCategory
@@ -1252,4 +1261,450 @@ func GetBetsByHouseEdge() []string {
 		result[i] = b.betType
 	}
 	return result
+}
+
+// --- RESOLVER FUNCTIONS FOR ALL CANONICAL BET TYPES ---
+
+// Generic resolver for Place bets (handles Place 4, 5, 6, 8, 9, 10)
+func resolvePlaceBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if state != StatePoint {
+		return false, 0, false
+	}
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	num := bet.Numbers[0]
+	if roll.Total == num {
+		def, _ := CanonicalBetDefinitions[bet.Type]
+		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+		return true, payout, true
+	} else if roll.Total == 7 {
+		return false, 0, true
+	}
+	return false, 0, false
+}
+
+// Generic resolver for Buy bets
+func resolveBuyBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if state != StatePoint {
+		return false, 0, false
+	}
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	num := bet.Numbers[0]
+	if roll.Total == num {
+		def, _ := CanonicalBetDefinitions[bet.Type]
+		gross := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+		commission := bet.Amount * def.Commission
+		return true, gross - commission, true
+	} else if roll.Total == 7 {
+		return false, 0, true
+	}
+	return false, 0, false
+}
+
+// Generic resolver for Lay bets
+func resolveLayBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if state != StatePoint {
+		return false, 0, false
+	}
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	num := bet.Numbers[0]
+	if roll.Total == 7 {
+		def, _ := CanonicalBetDefinitions[bet.Type]
+		gross := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+		commission := bet.Amount * def.Commission
+		return true, gross - commission, true
+	} else if roll.Total == num {
+		return false, 0, true
+	}
+	return false, 0, false
+}
+
+// Generic resolver for Place-to-Lose bets
+func resolvePlaceToLoseBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if state != StatePoint {
+		return false, 0, false
+	}
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	num := bet.Numbers[0]
+	if roll.Total == 7 {
+		def, _ := CanonicalBetDefinitions[bet.Type]
+		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+		return true, payout, true
+	} else if roll.Total == num {
+		return false, 0, true
+	}
+	return false, 0, false
+}
+
+// Generic resolver for Hardway bets
+func resolveHardwayBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if state != StatePoint {
+		return false, 0, false
+	}
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	num := bet.Numbers[0]
+	if roll.Total == num && roll.IsHard {
+		def, _ := CanonicalBetDefinitions[bet.Type]
+		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+		return true, payout, true
+	} else if roll.Total == num && !roll.IsHard {
+		return false, 0, true
+	} else if roll.Total == 7 {
+		return false, 0, true
+	}
+	return false, 0, false
+}
+
+// Pass Line resolver
+func resolvePassLine(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if state == StateComeOut {
+		if roll.Total == 7 || roll.Total == 11 {
+			return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+		} else if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
+			return false, 0, true
+		}
+		return false, 0, false
+	} else if state == StatePoint {
+		if len(bet.Numbers) == 0 {
+			return false, 0, false
+		}
+		point := bet.Numbers[0]
+		if roll.Total == point {
+			return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+		} else if roll.Total == 7 {
+			return false, 0, true
+		}
+	}
+	return false, 0, false
+}
+
+// Don't Pass resolver
+func resolveDontPass(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if state == StateComeOut {
+		if roll.Total == 2 || roll.Total == 3 {
+			return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+		} else if roll.Total == 12 {
+			return false, 0, true // push
+		} else if roll.Total == 7 || roll.Total == 11 {
+			return false, 0, true
+		}
+		return false, 0, false
+	} else if state == StatePoint {
+		if len(bet.Numbers) == 0 {
+			return false, 0, false
+		}
+		point := bet.Numbers[0]
+		if roll.Total == 7 {
+			return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+		} else if roll.Total == point {
+			return false, 0, true
+		}
+	}
+	return false, 0, false
+}
+
+// Field bet resolver
+func resolveFieldBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if roll.Total == 2 {
+		return true, bet.Amount * 2, true
+	} else if roll.Total == 12 {
+		return true, bet.Amount * 3, true
+	} else if roll.Total == 3 || roll.Total == 4 || roll.Total == 9 || roll.Total == 10 || roll.Total == 11 {
+		return true, bet.Amount, true
+	}
+	return false, 0, true
+}
+
+// Any Seven resolver
+func resolveAnySeven(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if roll.Total == 7 {
+		return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+	}
+	return false, 0, true
+}
+
+// Any Craps resolver
+func resolveAnyCraps(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
+		return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+	}
+	return false, 0, true
+}
+
+// Eleven resolver
+func resolveEleven(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if roll.Total == 11 {
+		return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+	}
+	return false, 0, true
+}
+
+// Ace-Deuce resolver
+func resolveAceDeuce(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if roll.Total == 3 {
+		return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+	}
+	return false, 0, true
+}
+
+// Aces resolver
+func resolveAces(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if roll.Total == 2 {
+		return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+	}
+	return false, 0, true
+}
+
+// Boxcars resolver
+func resolveBoxcars(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if roll.Total == 12 {
+		return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
+	}
+	return false, 0, true
+}
+
+// --- HORN BETS RESOLVER ---
+func resolveHornBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	// Horn bets win on 2, 3, 11, or 12, with different payouts for "high" numbers
+	// Use bet.Type to determine which is the "high" number
+	win := false
+	payout := 0.0
+	switch bet.Type {
+	case "HORN":
+		if roll.Total == 2 || roll.Total == 3 || roll.Total == 11 || roll.Total == 12 {
+			// Standard horn payout: 3:1 for 3, 11, 12; 27:4 for 2
+			if roll.Total == 2 || roll.Total == 12 {
+				payout = bet.Amount * 27.0 / 4.0
+			} else {
+				payout = bet.Amount * 3.0
+			}
+			win = true
+		}
+	case "HORN_HIGH_2":
+		if roll.Total == 2 {
+			payout = bet.Amount * 27.0 / 4.0
+			win = true
+		} else if roll.Total == 3 || roll.Total == 11 || roll.Total == 12 {
+			payout = bet.Amount * 3.0
+			win = true
+		}
+	case "HORN_HIGH_3":
+		if roll.Total == 3 {
+			payout = bet.Amount * 15.0
+			win = true
+		} else if roll.Total == 2 || roll.Total == 11 || roll.Total == 12 {
+			payout = bet.Amount * 3.0
+			win = true
+		}
+	case "HORN_HIGH_11":
+		if roll.Total == 11 {
+			payout = bet.Amount * 15.0
+			win = true
+		} else if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
+			payout = bet.Amount * 3.0
+			win = true
+		}
+	case "HORN_HIGH_12":
+		if roll.Total == 12 {
+			payout = bet.Amount * 27.0 / 4.0
+			win = true
+		} else if roll.Total == 2 || roll.Total == 3 || roll.Total == 11 {
+			payout = bet.Amount * 3.0
+			win = true
+		}
+	case "HORN_HIGH_ACE_DEUCE":
+		if roll.Total == 3 {
+			payout = bet.Amount * 15.0
+			win = true
+		} else if roll.Total == 2 || roll.Total == 11 || roll.Total == 12 {
+			payout = bet.Amount * 3.0
+			win = true
+		}
+	}
+	return win, payout, true
+}
+
+// --- HOP BETS RESOLVER ---
+func resolveHopBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	// Hop bets are one-roll bets on a specific dice combination
+	// Use ValidNumbers for the total, and bet.Type for hard/easy
+	def, _ := CanonicalBetDefinitions[bet.Type]
+	if len(def.ValidNumbers) == 0 {
+		return false, 0, true
+	}
+	if roll.Total == def.ValidNumbers[0] {
+		// For hard hops, check if IsHard is required
+		if bet.Type == "HOP_HARD_6" && roll.Total == 6 && roll.IsHard {
+			payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+			return true, payout, true
+		}
+		if bet.Type == "HOP_EASY_8" && roll.Total == 8 && !roll.IsHard {
+			payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+			return true, payout, true
+		}
+		// For generic hops, just pay out
+		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+		return true, payout, true
+	}
+	return false, 0, true
+}
+
+// --- COMBINATION BETS RESOLVER ---
+func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	switch bet.Type {
+	case "PLACE_NUMBERS":
+		for _, num := range []int{4, 5, 6, 8, 9, 10} {
+			tempBet := *bet
+			tempBet.Numbers = []int{num}
+			win, payout, remove := resolvePlaceBet(&tempBet, roll, state)
+			if win {
+				return win, payout, remove
+			}
+		}
+		return false, 0, false
+	case "PLACE_INSIDE":
+		for _, num := range []int{5, 6, 8, 9} {
+			tempBet := *bet
+			tempBet.Numbers = []int{num}
+			win, payout, remove := resolvePlaceBet(&tempBet, roll, state)
+			if win {
+				return win, payout, remove
+			}
+		}
+		return false, 0, false
+	case "PLACE_OUTSIDE":
+		for _, num := range []int{4, 5, 9, 10} {
+			tempBet := *bet
+			tempBet.Numbers = []int{num}
+			win, payout, remove := resolvePlaceBet(&tempBet, roll, state)
+			if win {
+				return win, payout, remove
+			}
+		}
+		return false, 0, false
+	case "ALL_HARDWAYS":
+		for _, num := range []int{4, 6, 8, 10} {
+			tempBet := *bet
+			tempBet.Numbers = []int{num}
+			win, payout, remove := resolveHardwayBet(&tempBet, roll, state)
+			if win {
+				return win, payout, remove
+			}
+		}
+		return false, 0, false
+	}
+	return false, 0, false
+}
+
+// --- REGISTER HORN AND HOP BETS IN BetTypeResolvers ---
+var BetTypeResolvers = map[string]BetResolutionFunc{
+	// Place bets
+	"PLACE_4":  resolvePlaceBet,
+	"PLACE_5":  resolvePlaceBet,
+	"PLACE_6":  resolvePlaceBet,
+	"PLACE_8":  resolvePlaceBet,
+	"PLACE_9":  resolvePlaceBet,
+	"PLACE_10": resolvePlaceBet,
+	// Buy bets
+	"BUY_4":  resolveBuyBet,
+	"BUY_5":  resolveBuyBet,
+	"BUY_6":  resolveBuyBet,
+	"BUY_8":  resolveBuyBet,
+	"BUY_9":  resolveBuyBet,
+	"BUY_10": resolveBuyBet,
+	// Lay bets
+	"LAY_4":  resolveLayBet,
+	"LAY_5":  resolveLayBet,
+	"LAY_6":  resolveLayBet,
+	"LAY_8":  resolveLayBet,
+	"LAY_9":  resolveLayBet,
+	"LAY_10": resolveLayBet,
+	// Place-to-lose bets
+	"PLACE_TO_LOSE_4":  resolvePlaceToLoseBet,
+	"PLACE_TO_LOSE_5":  resolvePlaceToLoseBet,
+	"PLACE_TO_LOSE_6":  resolvePlaceToLoseBet,
+	"PLACE_TO_LOSE_8":  resolvePlaceToLoseBet,
+	"PLACE_TO_LOSE_9":  resolvePlaceToLoseBet,
+	"PLACE_TO_LOSE_10": resolvePlaceToLoseBet,
+	// Hardway bets
+	"HARD_4":  resolveHardwayBet,
+	"HARD_6":  resolveHardwayBet,
+	"HARD_8":  resolveHardwayBet,
+	"HARD_10": resolveHardwayBet,
+	// Pass Line
+	"PASS_LINE": resolvePassLine,
+	// Don't Pass
+	"DONT_PASS": resolveDontPass,
+	// Field
+	"FIELD": resolveFieldBet,
+	// Any Seven
+	"ANY_SEVEN": resolveAnySeven,
+	// Any Craps
+	"ANY_CRAPS": resolveAnyCraps,
+	// Eleven
+	"ELEVEN": resolveEleven,
+	// Ace-Deuce
+	"ACE_DEUCE": resolveAceDeuce,
+	// Aces
+	"ACES": resolveAces,
+	// Boxcars
+	"BOXCARS": resolveBoxcars,
+	// Horn bets
+	"HORN":                resolveHornBet,
+	"HORN_HIGH_2":         resolveHornBet,
+	"HORN_HIGH_3":         resolveHornBet,
+	"HORN_HIGH_11":        resolveHornBet,
+	"HORN_HIGH_12":        resolveHornBet,
+	"HORN_HIGH_ACE_DEUCE": resolveHornBet,
+	// Hop bets
+	"HOP":        resolveHopBet,
+	"HOP_HARD_6": resolveHopBet,
+	"HOP_EASY_8": resolveHopBet,
+	"HOP_1_2":    resolveHopBet,
+	"HOP_1_3":    resolveHopBet,
+	"HOP_1_4":    resolveHopBet,
+	"HOP_1_5":    resolveHopBet,
+	"HOP_1_6":    resolveHopBet,
+	"HOP_2_3":    resolveHopBet,
+	"HOP_2_4":    resolveHopBet,
+	"HOP_2_5":    resolveHopBet,
+	"HOP_2_6":    resolveHopBet,
+	"HOP_3_4":    resolveHopBet,
+	"HOP_3_5":    resolveHopBet,
+	"HOP_3_6":    resolveHopBet,
+	"HOP_4_5":    resolveHopBet,
+	"HOP_4_6":    resolveHopBet,
+	"HOP_5_6":    resolveHopBet,
+	// Combination bets
+	"PLACE_NUMBERS": resolveCombinationBet,
+	"PLACE_INSIDE":  resolveCombinationBet,
+	"PLACE_OUTSIDE": resolveCombinationBet,
+	"ALL_HARDWAYS":  resolveCombinationBet,
+}
+
+// Central entry point for resolving a bet
+func ResolveBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	resolver, ok := BetTypeResolvers[bet.Type]
+	if !ok {
+		// fallback or error: unknown bet type
+		return false, 0, false
+	}
+	return resolver(bet, roll, state)
 }

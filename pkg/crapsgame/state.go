@@ -63,28 +63,6 @@ type Player struct {
 	SessionStart time.Time
 }
 
-// ComeBet represents a come bet with its lifecycle
-type ComeBet struct {
-	ID        string
-	PlayerID  string
-	Amount    float64
-	ComePoint Point   // Point number when established, PointOff when not established
-	Working   bool    // true if bet is active for current roll
-	Odds      float64 // odds bet amount (0 if no odds)
-	PlacedAt  time.Time
-}
-
-// OddsBet represents an odds bet with its lifecycle
-type OddsBet struct {
-	ID          string
-	PlayerID    string
-	Amount      float64
-	BaseBetType string // Type of base bet (PASS_LINE, DONT_PASS, COME, DONT_COME)
-	Point       Point  // Point number when odds were placed
-	Working     bool   // true if bet is active for current roll
-	PlacedAt    time.Time
-}
-
 // Table represents the craps table
 type Table struct {
 	State       GameState
@@ -97,9 +75,6 @@ type Table struct {
 	MaxOdds     int // maximum odds allowed (e.g., 3x, 5x)
 	CreatedAt   time.Time
 	LastRoll    time.Time
-	BetResolver *BetResolution      // New bet resolution handler
-	ComeBets    map[string]*ComeBet // Come bet state tracking
-	OddsBets    map[string]*OddsBet // Odds bet state tracking
 }
 
 // NewTable creates a new craps table
@@ -108,14 +83,11 @@ func NewTable(minBet, maxBet float64, maxOdds int) *Table {
 		State:     StateComeOut,
 		Point:     PointOff,
 		Players:   make(map[string]*Player),
-		ComeBets:  make(map[string]*ComeBet),
-		OddsBets:  make(map[string]*OddsBet),
 		MinBet:    minBet,
 		MaxBet:    maxBet,
 		MaxOdds:   maxOdds,
 		CreatedAt: time.Now(),
 	}
-	table.BetResolver = NewBetResolution(table)
 	return table
 }
 
@@ -155,12 +127,6 @@ func (t *Table) RemovePlayer(id string) error {
 		t.removeBet(bet.ID)
 	}
 
-	// Remove all player's come bets
-	t.removePlayerComeBets(id)
-
-	// Remove all player's odds bets
-	t.removePlayerOddsBets(id)
-
 	delete(t.Players, id)
 
 	// If this was the shooter, assign new shooter
@@ -169,40 +135,6 @@ func (t *Table) RemovePlayer(id string) error {
 	}
 
 	return nil
-}
-
-// removePlayerComeBets removes all come bets for a specific player
-func (t *Table) removePlayerComeBets(playerID string) {
-	var comeBetIDsToRemove []string
-
-	// Find all come bets for this player
-	for comeBetID, comeBet := range t.ComeBets {
-		if comeBet.PlayerID == playerID {
-			comeBetIDsToRemove = append(comeBetIDsToRemove, comeBetID)
-		}
-	}
-
-	// Remove the come bets
-	for _, comeBetID := range comeBetIDsToRemove {
-		t.removeComeBet(comeBetID)
-	}
-}
-
-// removePlayerOddsBets removes all odds bets for a specific player
-func (t *Table) removePlayerOddsBets(playerID string) {
-	var oddsBetIDsToRemove []string
-
-	// Find all odds bets for this player
-	for oddsBetID, oddsBet := range t.OddsBets {
-		if oddsBet.PlayerID == playerID {
-			oddsBetIDsToRemove = append(oddsBetIDsToRemove, oddsBetID)
-		}
-	}
-
-	// Remove the odds bets
-	for _, oddsBetID := range oddsBetIDsToRemove {
-		t.removeOddsBet(oddsBetID)
-	}
 }
 
 // assignNewShooter assigns a new shooter from available players
@@ -287,6 +219,52 @@ func (t *Table) UpdateGameState(roll *Roll) {
 	}
 }
 
+// UpdateGameStateOnly updates only the game state based on the roll, without bet resolution
+func (t *Table) UpdateGameStateOnly(roll *Roll) {
+	switch t.State {
+	case StateComeOut:
+		switch roll.Total {
+		case 7, 11:
+			// Natural - stay in come out
+			fmt.Printf("Natural: %d - staying in come out\n", roll.Total)
+		case 2, 3, 12:
+			// Craps - stay in come out
+			fmt.Printf("Craps: %d - staying in come out\n", roll.Total)
+		default:
+			// Point established
+			point, err := rollTotalToPoint(roll.Total)
+			if err != nil {
+				fmt.Printf("Error converting roll total to point: %v\n", err)
+				return
+			}
+			t.State = StatePoint
+			t.Point = point
+			fmt.Printf("Point established: %d\n", roll.Total)
+		}
+	case StatePoint:
+		if roll.Total == 7 {
+			// Seven out - back to come out
+			t.State = StateComeOut
+			t.Point = PointOff
+			t.assignNewShooter()
+			fmt.Printf("Seven out! New shooter: %s\n", t.Shooter)
+		} else {
+			pointNumber, err := PointToNumber(t.Point)
+			if err != nil {
+				fmt.Printf("Error getting point number: %v\n", err)
+				return
+			}
+			if roll.Total == pointNumber {
+				// Point made - back to come out
+				t.State = StateComeOut
+				t.Point = PointOff
+				fmt.Printf("Point resolved: %d\n", roll.Total)
+			}
+			// Other numbers don't change the point
+		}
+	}
+}
+
 // establishPoint establishes a point when a point number is rolled during come out
 func (t *Table) establishPoint(roll *Roll) {
 	// Validate state transition
@@ -296,7 +274,6 @@ func (t *Table) establishPoint(roll *Roll) {
 	}
 
 	fromState := t.State
-	t.State = StatePoint
 
 	// Convert roll total to proper Point enum value
 	point, err := rollTotalToPoint(roll.Total)
@@ -305,29 +282,12 @@ func (t *Table) establishPoint(roll *Roll) {
 		return
 	}
 
-	// Log state transition
-	t.LogStateTransition(fromState, t.State, roll, "point establishment")
-
-	// Trigger bet resolution for come out bets (state is still COME_OUT)
-	t.BetResolver.ResolveBets(roll)
-
-	// Update state AFTER bet resolution
+	// Update state
 	t.State = StatePoint
 	t.Point = point
 
-	// Resolve come bets
-	comeBetResults := t.resolveAllComeBets(roll)
-	for _, result := range comeBetResults {
-		fmt.Printf("Come bet result: %s\n", result)
-	}
-
-	// Resolve odds bets
-	oddsBetResults := t.resolveAllOddsBets(roll)
-	for _, result := range oddsBetResults {
-		fmt.Printf("Odds bet result: %s\n", result)
-	}
-
 	// Log state transition
+	t.LogStateTransition(fromState, t.State, roll, "point establishment")
 	fmt.Printf("Point established: %d\n", roll.Total)
 }
 
@@ -341,30 +301,12 @@ func (t *Table) resolvePoint(roll *Roll) {
 
 	fromState := t.State
 
-	// Trigger bet resolution for point resolution BEFORE state change
-	// This ensures bets are resolved in the correct state (POINT)
-	t.BetResolver.ResolveBets(roll)
-
-	// Now change state
+	// Change state
 	t.State = StateComeOut
 	t.Point = PointOff
 
 	// Log state transition
 	t.LogStateTransition(fromState, t.State, roll, "point resolution")
-
-	// Resolve come bets
-	comeBetResults := t.resolveAllComeBets(roll)
-	for _, result := range comeBetResults {
-		fmt.Printf("Come bet result: %s\n", result)
-	}
-
-	// Resolve odds bets
-	oddsBetResults := t.resolveAllOddsBets(roll)
-	for _, result := range oddsBetResults {
-		fmt.Printf("Odds bet result: %s\n", result)
-	}
-
-	// Log state transition
 	fmt.Printf("Point resolved: %d\n", roll.Total)
 }
 
@@ -378,27 +320,11 @@ func (t *Table) sevenOut(roll *Roll) {
 
 	fromState := t.State
 
-	// Trigger bet resolution for seven-out BEFORE state change
-	// This ensures bets are resolved in the correct state (POINT)
-	t.BetResolver.ResolveBets(roll)
-
-	// Now change state
+	// Change state
 	t.State = StateSevenOut
 
 	// Log state transition
 	t.LogStateTransition(fromState, t.State, roll, "seven out")
-
-	// Resolve come bets
-	comeBetResults := t.resolveAllComeBets(roll)
-	for _, result := range comeBetResults {
-		fmt.Printf("Come bet result: %s\n", result)
-	}
-
-	// Resolve odds bets
-	oddsBetResults := t.resolveAllOddsBets(roll)
-	for _, result := range oddsBetResults {
-		fmt.Printf("Odds bet result: %s\n", result)
-	}
 
 	// Assign new shooter
 	t.assignNewShooter()
@@ -409,8 +335,6 @@ func (t *Table) sevenOut(roll *Roll) {
 
 	// Log final state transition
 	t.LogStateTransition(StateSevenOut, t.State, roll, "come out after seven out")
-
-	// Log state transition
 	fmt.Printf("Seven out! New shooter: %s\n", t.Shooter)
 }
 
@@ -420,21 +344,6 @@ func (t *Table) natural(roll *Roll) {
 	if err := t.validateStateTransition(StateComeOut, StateComeOut, roll); err != nil {
 		fmt.Printf("Error natural: %v\n", err)
 		return
-	}
-
-	// Trigger bet resolution for natural
-	t.BetResolver.ResolveBets(roll)
-
-	// Resolve come bets
-	comeBetResults := t.resolveAllComeBets(roll)
-	for _, result := range comeBetResults {
-		fmt.Printf("Come bet result: %s\n", result)
-	}
-
-	// Resolve odds bets
-	oddsBetResults := t.resolveAllOddsBets(roll)
-	for _, result := range oddsBetResults {
-		fmt.Printf("Odds bet result: %s\n", result)
 	}
 
 	// Log state transition
@@ -447,21 +356,6 @@ func (t *Table) craps(roll *Roll) {
 	if err := t.validateStateTransition(StateComeOut, StateComeOut, roll); err != nil {
 		fmt.Printf("Error craps: %v\n", err)
 		return
-	}
-
-	// Trigger bet resolution for craps
-	t.BetResolver.ResolveBets(roll)
-
-	// Resolve come bets
-	comeBetResults := t.resolveAllComeBets(roll)
-	for _, result := range comeBetResults {
-		fmt.Printf("Come bet result: %s\n", result)
-	}
-
-	// Resolve odds bets
-	oddsBetResults := t.resolveAllOddsBets(roll)
-	for _, result := range oddsBetResults {
-		fmt.Printf("Odds bet result: %s\n", result)
 	}
 
 	// Log state transition
@@ -771,274 +665,6 @@ func (t *Table) LogStateTransition(fromState GameState, toState GameState, roll 
 		fromState.String(), toState.String(), roll.Total, reason)
 }
 
-// establishComePoint establishes a come point when a point number is rolled
-func (t *Table) establishComePoint(comeBet *ComeBet, roll *Roll) error {
-	// Validate come bet exists
-	if comeBet == nil {
-		return fmt.Errorf("come bet is nil")
-	}
-
-	// Validate come bet is not already established
-	if comeBet.ComePoint != PointOff {
-		return fmt.Errorf("come bet %s is already established on point %s", comeBet.ID, comeBet.ComePoint.String())
-	}
-
-	// Convert roll total to proper Point enum value
-	point, err := rollTotalToPoint(roll.Total)
-	if err != nil {
-		return fmt.Errorf("invalid point number for come bet: %d", roll.Total)
-	}
-
-	// Establish the come point
-	comeBet.ComePoint = point
-
-	// Log come point establishment
-	fmt.Printf("Come bet %s established on point %d\n", comeBet.ID, roll.Total)
-
-	return nil
-}
-
-// resolveComeBet resolves a come bet based on the current roll
-func (t *Table) resolveComeBet(comeBet *ComeBet, roll *Roll, player *Player) string {
-	if comeBet == nil || player == nil {
-		return "Error: Invalid come bet or player"
-	}
-
-	// Check if come bet is established
-	if comeBet.ComePoint == PointOff {
-		// Come bet not established yet - check for immediate win/loss
-		switch roll.Total {
-		case 7, 11:
-			// Natural - come bet wins
-			winnings := comeBet.Amount * 2 // 1:1 payout
-			player.Bankroll += winnings
-			t.removeComeBet(comeBet.ID)
-			return fmt.Sprintf("Come bet %s wins on natural %d: $%.2f", comeBet.ID, roll.Total, winnings)
-		case 2, 3, 12:
-			// Craps - come bet loses
-			t.removeComeBet(comeBet.ID)
-			return fmt.Sprintf("Come bet %s loses on craps %d", comeBet.ID, roll.Total)
-		default:
-			// Point number - establish come point
-			if err := t.establishComePoint(comeBet, roll); err != nil {
-				return fmt.Sprintf("Error establishing come point: %v", err)
-			}
-			return fmt.Sprintf("Come bet %s established on point %d", comeBet.ID, roll.Total)
-		}
-	} else {
-		// Come bet is established - check for resolution
-		comePointNumber, err := PointToNumber(comeBet.ComePoint)
-		if err != nil {
-			return fmt.Sprintf("Error getting come point number: %v", err)
-		}
-
-		if roll.Total == comePointNumber {
-			// Point made - come bet wins
-			winnings := comeBet.Amount * 2 // 1:1 payout
-			if comeBet.Odds > 0 {
-				// Calculate odds payout based on point
-				oddsPayout := t.calculateComeOddsPayout(comeBet.Odds, comePointNumber)
-				winnings += oddsPayout
-			}
-			player.Bankroll += winnings
-			t.removeComeBet(comeBet.ID)
-			return fmt.Sprintf("Come bet %s wins on point %d: $%.2f", comeBet.ID, roll.Total, winnings)
-		} else if roll.Total == 7 {
-			// Seven out - come bet loses
-			t.removeComeBet(comeBet.ID)
-			return fmt.Sprintf("Come bet %s loses on seven out", comeBet.ID)
-		}
-		// Other numbers don't affect established come bet
-		return fmt.Sprintf("Come bet %s continues on point %d", comeBet.ID, comeBet.ComePoint)
-	}
-}
-
-// calculateComeOddsPayout calculates the payout for come odds based on point
-func (t *Table) calculateComeOddsPayout(oddsAmount float64, point int) float64 {
-	switch point {
-	case 4, 10:
-		return oddsAmount * 2 // 2:1 odds
-	case 5, 9:
-		return oddsAmount * 1.5 // 3:2 odds
-	case 6, 8:
-		return oddsAmount * 1.2 // 6:5 odds
-	default:
-		return 0
-	}
-}
-
-// removeComeBet removes a come bet from tracking
-func (t *Table) removeComeBet(comeBetID string) {
-	delete(t.ComeBets, comeBetID)
-}
-
-// resolveAllComeBets resolves all come bets for a given roll
-func (t *Table) resolveAllComeBets(roll *Roll) []string {
-	var results []string
-
-	for _, comeBet := range t.ComeBets {
-		player := t.Players[comeBet.PlayerID]
-		if player != nil {
-			result := t.resolveComeBet(comeBet, roll, player)
-			results = append(results, result)
-		}
-	}
-
-	return results
-}
-
-// calculateOddsPayout calculates the payout for odds based on point
-func (t *Table) calculateOddsPayout(oddsBet *OddsBet, point int) float64 {
-	if oddsBet == nil {
-		return 0
-	}
-
-	// Calculate true odds based on point number
-	switch point {
-	case 4, 10:
-		return oddsBet.Amount * 2 // 2:1 odds
-	case 5, 9:
-		return oddsBet.Amount * 1.5 // 3:2 odds
-	case 6, 8:
-		return oddsBet.Amount * 1.2 // 6:5 odds
-	default:
-		return 0
-	}
-}
-
-// resolveOddsBet resolves an odds bet based on the current roll
-func (t *Table) resolveOddsBet(oddsBet *OddsBet, roll *Roll, player *Player) string {
-	if oddsBet == nil || player == nil {
-		return "Error: Invalid odds bet or player"
-	}
-
-	// Odds bets are resolved based on the base bet type
-	switch oddsBet.BaseBetType {
-	case "PASS_LINE":
-		return t.resolvePassLineOdds(oddsBet, roll, player)
-	case "DONT_PASS":
-		return t.resolveDontPassOdds(oddsBet, roll, player)
-	case "COME":
-		return t.resolveComeOdds(oddsBet, roll, player)
-	case "DONT_COME":
-		return t.resolveDontComeOdds(oddsBet, roll, player)
-	default:
-		return fmt.Sprintf("Unknown odds bet type: %s", oddsBet.BaseBetType)
-	}
-}
-
-// resolvePassLineOdds resolves pass line odds
-func (t *Table) resolvePassLineOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
-	// Pass line odds win when point is made, lose on seven out
-	pointNumber, err := PointToNumber(oddsBet.Point)
-	if err != nil {
-		return fmt.Sprintf("Error getting point number: %v", err)
-	}
-
-	if roll.Total == pointNumber {
-		// Point made - odds win
-		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
-		player.Bankroll += winnings
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Pass line odds %s wins on point %d: $%.2f", oddsBet.ID, roll.Total, winnings)
-	} else if roll.Total == 7 {
-		// Seven out - odds lose
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Pass line odds %s loses on seven out", oddsBet.ID)
-	}
-	// Other numbers don't affect pass line odds
-	return fmt.Sprintf("Pass line odds %s continues on point %d", oddsBet.ID, oddsBet.Point)
-}
-
-// resolveDontPassOdds resolves don't pass odds
-func (t *Table) resolveDontPassOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
-	// Don't pass odds win on seven out, lose when point is made
-	pointNumber, err := PointToNumber(oddsBet.Point)
-	if err != nil {
-		return fmt.Sprintf("Error getting point number: %v", err)
-	}
-
-	if roll.Total == 7 {
-		// Seven out - odds win
-		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
-		player.Bankroll += winnings
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Don't pass odds %s wins on seven out: $%.2f", oddsBet.ID, winnings)
-	} else if roll.Total == pointNumber {
-		// Point made - odds lose
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Don't pass odds %s loses on point %d", oddsBet.ID, roll.Total)
-	}
-	// Other numbers don't affect don't pass odds
-	return fmt.Sprintf("Don't pass odds %s continues on point %d", oddsBet.ID, oddsBet.Point)
-}
-
-// resolveComeOdds resolves come odds
-func (t *Table) resolveComeOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
-	// Come odds win when come point is made, lose on seven out
-	pointNumber, err := PointToNumber(oddsBet.Point)
-	if err != nil {
-		return fmt.Sprintf("Error getting point number: %v", err)
-	}
-
-	if roll.Total == pointNumber {
-		// Come point made - odds win
-		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
-		player.Bankroll += winnings
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Come odds %s wins on point %d: $%.2f", oddsBet.ID, roll.Total, winnings)
-	} else if roll.Total == 7 {
-		// Seven out - odds lose
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Come odds %s loses on seven out", oddsBet.ID)
-	}
-	// Other numbers don't affect come odds
-	return fmt.Sprintf("Come odds %s continues on point %d", oddsBet.ID, oddsBet.Point)
-}
-
-// resolveDontComeOdds resolves don't come odds
-func (t *Table) resolveDontComeOdds(oddsBet *OddsBet, roll *Roll, player *Player) string {
-	// Don't come odds win on seven out, lose when come point is made
-	pointNumber, err := PointToNumber(oddsBet.Point)
-	if err != nil {
-		return fmt.Sprintf("Error getting point number: %v", err)
-	}
-
-	if roll.Total == 7 {
-		// Seven out - odds win
-		winnings := t.calculateOddsPayout(oddsBet, pointNumber)
-		player.Bankroll += winnings
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Don't come odds %s wins on seven out: $%.2f", oddsBet.ID, winnings)
-	} else if roll.Total == pointNumber {
-		// Come point made - odds lose
-		t.removeOddsBet(oddsBet.ID)
-		return fmt.Sprintf("Don't come odds %s loses on point %d", oddsBet.ID, roll.Total)
-	}
-	// Other numbers don't affect don't come odds
-	return fmt.Sprintf("Don't come odds %s continues on point %d", oddsBet.ID, oddsBet.Point)
-}
-
-// removeOddsBet removes an odds bet from tracking
-func (t *Table) removeOddsBet(oddsBetID string) {
-	delete(t.OddsBets, oddsBetID)
-}
-
-// resolveAllOddsBets resolves all odds bets for a given roll
-func (t *Table) resolveAllOddsBets(roll *Roll) []string {
-	var results []string
-
-	for _, oddsBet := range t.OddsBets {
-		player := t.Players[oddsBet.PlayerID]
-		if player != nil {
-			result := t.resolveOddsBet(oddsBet, roll, player)
-			results = append(results, result)
-		}
-	}
-
-	return results
-}
-
 // validateBetAmount validates that the bet amount is within table limits
 func (t *Table) validateBetAmount(amount float64) error {
 	if amount < t.MinBet {
@@ -1176,4 +802,209 @@ func PointToNumber(point Point) (int, error) {
 	default:
 		return 0, fmt.Errorf("invalid point enum value: %d", point)
 	}
+}
+
+// ResolveAllBets resolves all bets using the unified ResolveBet function
+func (t *Table) ResolveAllBets(roll *Roll) []string {
+	var results []string
+
+	// Process all player bets
+	for _, player := range t.Players {
+		var betsToRemove []*Bet
+
+		for _, bet := range player.Bets {
+			if !bet.Working {
+				continue
+			}
+
+			// Use the unified ResolveBet function from canonical_bets.go
+			win, payout, remove := ResolveBet(bet, roll, t.State)
+
+			if win {
+				// Bet wins - add payout to bankroll
+				player.Bankroll += bet.Amount + payout
+				results = append(results, fmt.Sprintf("🎉 %s wins $%.2f (payout: $%.2f)", bet.Type, bet.Amount+payout, payout))
+			} else {
+				// Bet loses - amount already deducted when placed
+				results = append(results, fmt.Sprintf("💥 %s loses $%.2f", bet.Type, bet.Amount))
+			}
+
+			if remove {
+				betsToRemove = append(betsToRemove, bet)
+			}
+		}
+
+		// Remove resolved bets
+		for _, bet := range betsToRemove {
+			t.removeBet(bet.ID)
+		}
+	}
+
+	return results
+}
+
+// RollDiceAndResolve follows the simplified game flow: roll dice, resolve bets, update state
+func (t *Table) RollDiceAndResolve() (*Roll, []string) {
+	// Validate shooter before roll
+	if err := t.validateShooter(t.Shooter); err != nil {
+		fmt.Printf("Warning: Invalid shooter before roll: %v\n", err)
+		t.assignNewShooter()
+	}
+
+	// Step 1: Roll the dice
+	roll := &Roll{
+		Die1: rollDieSecure(),
+		Die2: rollDieSecure(),
+		Time: time.Now(),
+	}
+	roll.Total = roll.Die1 + roll.Die2
+	roll.IsHard = roll.Die1 == roll.Die2
+
+	t.CurrentRoll = roll
+	t.LastRoll = roll.Time
+
+	fmt.Printf("Rolled: %d-%d = %d\n", roll.Die1, roll.Die2, roll.Total)
+
+	// Step 2: Resolve all bets using unified ResolveBet function
+	betResults := t.ResolveAllBets(roll)
+
+	// Step 3: Update game state (after bet resolution)
+	t.UpdateGameStateOnly(roll)
+
+	return roll, betResults
+}
+
+func (t *Table) UpdateBetWorkingStatus() {
+	for _, player := range t.Players {
+		for _, bet := range player.Bets {
+			bet.Working = t.shouldBetBeWorking(bet, t.State)
+		}
+	}
+}
+
+func (t *Table) shouldBetBeWorking(bet *Bet, state GameState) bool {
+	return true
+}
+
+// PlayGame implements the simplified game flow:
+// 1. Place Bets (deduct bankroll + store bet)
+// 2. Roll Dice
+// 3. Pay/collect every bet using unified ResolveBet
+// 4. Update game state based on dice
+// 5. Repeat
+func (t *Table) PlayGame() {
+	fmt.Println("=== CRAPS GAME STARTED ===")
+	fmt.Printf("Current state: %s\n", t.State.String())
+	if t.State == StatePoint {
+		fmt.Printf("Point: %s\n", t.Point.String())
+	}
+	fmt.Printf("Shooter: %s\n", t.Shooter)
+	fmt.Println("Ready for bets...")
+}
+
+// ExecuteGameTurn executes one complete turn of the game
+// This is the main game loop that follows your desired pattern
+func (t *Table) ExecuteGameTurn() (*Roll, []string) {
+	// Step 1: Roll the dice
+	roll := t.RollDice()
+
+	// Step 2: Pay/collect every bet using unified ResolveBet
+	betResults := t.ResolveAllBets(roll)
+
+	// Step 3: Update game state based on dice
+	t.UpdateGameStateOnly(roll)
+
+	return roll, betResults
+}
+
+// RemoveBet removes a specific bet type for a player
+func (t *Table) RemoveBet(playerID, betType string) error {
+	player, err := t.GetPlayer(playerID)
+	if err != nil {
+		return fmt.Errorf("player %s not found", playerID)
+	}
+
+	var remainingBets []*Bet
+	removedCount := 0
+
+	for _, bet := range player.Bets {
+		if bet.Type == betType && bet.Working {
+			// Return bet amount to player's bankroll
+			player.Bankroll += bet.Amount
+			removedCount++
+		} else {
+			remainingBets = append(remainingBets, bet)
+		}
+	}
+
+	player.Bets = remainingBets
+
+	if removedCount == 0 {
+		return fmt.Errorf("no active %s bets to remove", betType)
+	}
+
+	return nil
+}
+
+// PressBet increases the amount of a specific bet type for a player
+func (t *Table) PressBet(playerID, betType string, amount float64) error {
+	player, err := t.GetPlayer(playerID)
+	if err != nil {
+		return fmt.Errorf("player %s not found", playerID)
+	}
+
+	if amount <= 0 {
+		return fmt.Errorf("press amount must be positive")
+	}
+
+	if player.Bankroll < amount {
+		return fmt.Errorf("insufficient bankroll for press")
+	}
+
+	pressedCount := 0
+	for _, bet := range player.Bets {
+		if bet.Type == betType && bet.Working {
+			bet.Amount += amount
+			player.Bankroll -= amount
+			pressedCount++
+		}
+	}
+
+	if pressedCount == 0 {
+		return fmt.Errorf("no active %s bets to press", betType)
+	}
+
+	return nil
+}
+
+// TurnBet turns a specific bet type on or off for a player
+func (t *Table) TurnBet(playerID, betType string, working bool) error {
+	player, err := t.GetPlayer(playerID)
+	if err != nil {
+		return fmt.Errorf("player %s not found", playerID)
+	}
+
+	turnedCount := 0
+	for _, bet := range player.Bets {
+		if bet.Type == betType {
+			bet.Working = working
+			turnedCount++
+		}
+	}
+
+	if turnedCount == 0 {
+		return fmt.Errorf("no %s bets to turn", betType)
+	}
+
+	return nil
+}
+
+// rollDieSecure generates a secure random die roll (1-6)
+func rollDieSecure() int {
+	n, err := rand.Int(rand.Reader, big.NewInt(6))
+	if err != nil {
+		// Fallback to timestamp-based random if crypto/rand fails
+		return int(time.Now().UnixNano()%6) + 1
+	}
+	return int(n.Int64()) + 1
 }
