@@ -719,6 +719,83 @@ func extractNumbersForBetType(expr *BetTypeExpression) []int {
 				numbers = append(numbers, int(numExpr.Value))
 			}
 		}
+	// Individual place bets
+	case BetPlace4:
+		numbers = []int{4}
+	case BetPlace5:
+		numbers = []int{5}
+	case BetPlace6:
+		numbers = []int{6}
+	case BetPlace8:
+		numbers = []int{8}
+	case BetPlace9:
+		numbers = []int{9}
+	case BetPlace10:
+		numbers = []int{10}
+	// Individual buy bets
+	case BetBuy4:
+		numbers = []int{4}
+	case BetBuy5:
+		numbers = []int{5}
+	case BetBuy6:
+		numbers = []int{6}
+	case BetBuy8:
+		numbers = []int{8}
+	case BetBuy9:
+		numbers = []int{9}
+	case BetBuy10:
+		numbers = []int{10}
+	// Individual lay bets
+	case BetLay4:
+		numbers = []int{4}
+	case BetLay5:
+		numbers = []int{5}
+	case BetLay6:
+		numbers = []int{6}
+	case BetLay8:
+		numbers = []int{8}
+	case BetLay9:
+		numbers = []int{9}
+	case BetLay10:
+		numbers = []int{10}
+	// Individual place-to-lose bets
+	case BetPlaceToLose4:
+		numbers = []int{4}
+	case BetPlaceToLose5:
+		numbers = []int{5}
+	case BetPlaceToLose6:
+		numbers = []int{6}
+	case BetPlaceToLose8:
+		numbers = []int{8}
+	case BetPlaceToLose9:
+		numbers = []int{9}
+	case BetPlaceToLose10:
+		numbers = []int{10}
+	// Individual hardway bets
+	case BetHard4:
+		numbers = []int{4}
+	case BetHard6:
+		numbers = []int{6}
+	case BetHard8:
+		numbers = []int{8}
+	case BetHard10:
+		numbers = []int{10}
+	// Big bets
+	case BetBig6:
+		numbers = []int{6}
+	case BetBig8:
+		numbers = []int{8}
+	// One-roll proposition bets
+	case BetAnySeven:
+		numbers = []int{7}
+	case BetEleven:
+		numbers = []int{11}
+	case BetAceDeuce:
+		numbers = []int{3}
+	case BetAces:
+		numbers = []int{2}
+	case BetBoxcars:
+		numbers = []int{12}
 	}
 
 	return numbers
