@@ -824,10 +824,11 @@ func (t *Table) ResolveAllBets(roll *Roll) []string {
 				// Bet wins - add payout to bankroll
 				player.Bankroll += bet.Amount + payout
 				results = append(results, fmt.Sprintf("🎉 %s wins $%.2f (payout: $%.2f)", bet.Type, bet.Amount+payout, payout))
-			} else {
-				// Bet loses - amount already deducted when placed
+			} else if remove {
+				// Bet loses and should be removed
 				results = append(results, fmt.Sprintf("💥 %s loses $%.2f", bet.Type, bet.Amount))
 			}
+			// If neither win nor remove, bet continues (no action needed)
 
 			if remove {
 				betsToRemove = append(betsToRemove, bet)

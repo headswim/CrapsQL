@@ -1267,9 +1267,6 @@ func GetBetsByHouseEdge() []string {
 
 // Generic resolver for Place bets (handles Place 4, 5, 6, 8, 9, 10)
 func resolvePlaceBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
-	if state != StatePoint {
-		return false, 0, false
-	}
 	if len(bet.Numbers) == 0 {
 		return false, 0, false
 	}
@@ -1277,18 +1274,15 @@ func resolvePlaceBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool
 	if roll.Total == num {
 		def, _ := CanonicalBetDefinitions[bet.Type]
 		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
-		return true, payout, true
+		return true, payout, false // Win and continue
 	} else if roll.Total == 7 {
-		return false, 0, true
+		return false, 0, true // Lose and remove
 	}
-	return false, 0, false
+	return false, 0, false // Continue
 }
 
 // Generic resolver for Buy bets
 func resolveBuyBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
-	if state != StatePoint {
-		return false, 0, false
-	}
 	if len(bet.Numbers) == 0 {
 		return false, 0, false
 	}
@@ -1297,18 +1291,15 @@ func resolveBuyBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) 
 		def, _ := CanonicalBetDefinitions[bet.Type]
 		gross := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
 		commission := bet.Amount * def.Commission
-		return true, gross - commission, true
+		return true, gross - commission, false // Win and continue
 	} else if roll.Total == 7 {
-		return false, 0, true
+		return false, 0, true // Lose and remove
 	}
-	return false, 0, false
+	return false, 0, false // Continue
 }
 
 // Generic resolver for Lay bets
 func resolveLayBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
-	if state != StatePoint {
-		return false, 0, false
-	}
 	if len(bet.Numbers) == 0 {
 		return false, 0, false
 	}
@@ -1317,18 +1308,15 @@ func resolveLayBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) 
 		def, _ := CanonicalBetDefinitions[bet.Type]
 		gross := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
 		commission := bet.Amount * def.Commission
-		return true, gross - commission, true
+		return true, gross - commission, false // Win and continue
 	} else if roll.Total == num {
-		return false, 0, true
+		return false, 0, true // Lose and remove
 	}
-	return false, 0, false
+	return false, 0, false // Continue
 }
 
 // Generic resolver for Place-to-Lose bets
 func resolvePlaceToLoseBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
-	if state != StatePoint {
-		return false, 0, false
-	}
 	if len(bet.Numbers) == 0 {
 		return false, 0, false
 	}
@@ -1336,18 +1324,15 @@ func resolvePlaceToLoseBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 	if roll.Total == 7 {
 		def, _ := CanonicalBetDefinitions[bet.Type]
 		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
-		return true, payout, true
+		return true, payout, false // Win and continue
 	} else if roll.Total == num {
-		return false, 0, true
+		return false, 0, true // Lose and remove
 	}
-	return false, 0, false
+	return false, 0, false // Continue
 }
 
 // Generic resolver for Hardway bets
 func resolveHardwayBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
-	if state != StatePoint {
-		return false, 0, false
-	}
 	if len(bet.Numbers) == 0 {
 		return false, 0, false
 	}
@@ -1355,13 +1340,13 @@ func resolveHardwayBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bo
 	if roll.Total == num && roll.IsHard {
 		def, _ := CanonicalBetDefinitions[bet.Type]
 		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
-		return true, payout, true
+		return true, payout, false // Win and continue
 	} else if roll.Total == num && !roll.IsHard {
-		return false, 0, true
+		return false, 0, true // Lose and remove
 	} else if roll.Total == 7 {
-		return false, 0, true
+		return false, 0, true // Lose and remove
 	}
-	return false, 0, false
+	return false, 0, false // Continue
 }
 
 // Pass Line resolver
@@ -1578,7 +1563,11 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 				return win, payout, remove
 			}
 		}
-		return false, 0, false
+		// Check if any place bet would lose (7 rolled)
+		if roll.Total == 7 {
+			return false, 0, true // Lose and remove
+		}
+		return false, 0, false // Continue
 	case "PLACE_INSIDE":
 		for _, num := range []int{5, 6, 8, 9} {
 			tempBet := *bet
@@ -1588,7 +1577,11 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 				return win, payout, remove
 			}
 		}
-		return false, 0, false
+		// Check if any place bet would lose (7 rolled)
+		if roll.Total == 7 {
+			return false, 0, true // Lose and remove
+		}
+		return false, 0, false // Continue
 	case "PLACE_OUTSIDE":
 		for _, num := range []int{4, 5, 9, 10} {
 			tempBet := *bet
@@ -1598,7 +1591,11 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 				return win, payout, remove
 			}
 		}
-		return false, 0, false
+		// Check if any place bet would lose (7 rolled)
+		if roll.Total == 7 {
+			return false, 0, true // Lose and remove
+		}
+		return false, 0, false // Continue
 	case "ALL_HARDWAYS":
 		for _, num := range []int{4, 6, 8, 10} {
 			tempBet := *bet
@@ -1608,9 +1605,59 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 				return win, payout, remove
 			}
 		}
-		return false, 0, false
+		// Check if any hardway bet would lose (7 rolled or number rolled easy)
+		if roll.Total == 7 {
+			return false, 0, true // Lose and remove
+		}
+		// Check if any of the hardway numbers were rolled easy
+		for _, num := range []int{4, 6, 8, 10} {
+			if roll.Total == num && !roll.IsHard {
+				return false, 0, true // Lose and remove
+			}
+		}
+		return false, 0, false // Continue
 	}
 	return false, 0, false
+}
+
+// Big 6/8 bet resolver
+func resolveBigBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	num := bet.Numbers[0]
+	if roll.Total == num {
+		def, _ := CanonicalBetDefinitions[bet.Type]
+		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+		return true, payout, false // Win and continue
+	} else if roll.Total == 7 {
+		return false, 0, true // Lose and remove
+	}
+	return false, 0, false // Continue
+}
+
+// World bet resolver (combination of any 7 and any craps)
+func resolveWorldBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if roll.Total == 7 {
+		// Any 7 pays 4:1
+		return true, bet.Amount * 4, false // Win and continue
+	} else if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
+		// Any craps pays 1:1
+		return true, bet.Amount, false // Win and continue
+	}
+	return false, 0, false // Continue
+}
+
+// C and E bet resolver (combination of craps and eleven)
+func resolveCAndEBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
+		// Any craps pays 3:1
+		return true, bet.Amount * 3, false // Win and continue
+	} else if roll.Total == 11 {
+		// Eleven pays 7:1
+		return true, bet.Amount * 7, false // Win and continue
+	}
+	return false, 0, false // Continue
 }
 
 // --- REGISTER HORN AND HOP BETS IN BetTypeResolvers ---
@@ -1697,6 +1744,13 @@ var BetTypeResolvers = map[string]BetResolutionFunc{
 	"PLACE_INSIDE":  resolveCombinationBet,
 	"PLACE_OUTSIDE": resolveCombinationBet,
 	"ALL_HARDWAYS":  resolveCombinationBet,
+	// Big 6/8 bets
+	"BIG_6": resolveBigBet,
+	"BIG_8": resolveBigBet,
+	// World bet
+	"WORLD": resolveWorldBet,
+	// C and E bet
+	"C_AND_E": resolveCAndEBet,
 }
 
 // Central entry point for resolving a bet
