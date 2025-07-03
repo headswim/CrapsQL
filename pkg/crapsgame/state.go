@@ -171,16 +171,8 @@ func (t *Table) RollDice() *Roll {
 	t.CurrentRoll = roll
 	t.LastRoll = roll.Time
 
-	// Update game state based on roll
-	t.UpdateGameState(roll)
-
-	// Validate table state after roll
-	if err := t.validateTableState(); err != nil {
-		fmt.Printf("Warning: Invalid table state after roll: %v\n", err)
-	}
-
-	// Note: Bet resolution is handled by the caller (interpreter)
-	// This prevents double resolution when ROLL DICE is called
+	// Note: State updates are handled by the caller (ExecuteGameTurn)
+	// This prevents double state updates when ROLL DICE is called
 
 	return roll
 }
