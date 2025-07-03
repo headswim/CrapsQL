@@ -809,8 +809,16 @@ func (t *Table) ResolveAllBets(roll *Roll) []string {
 				continue
 			}
 
+			// Debug: Print bet being processed
+			fmt.Printf("DEBUG: Processing bet %s (amount: $%.2f, numbers: %v) in state %s\n",
+				bet.Type, bet.Amount, bet.Numbers, t.State.String())
+
 			// Use the unified ResolveBet function from canonical_bets.go
 			win, payout, remove := ResolveBet(bet, roll, t.State)
+
+			// Debug: Print resolution result
+			fmt.Printf("DEBUG: Bet %s -> win: %v, payout: $%.2f, remove: %v\n",
+				bet.Type, win, payout, remove)
 
 			if win {
 				// Bet wins - add payout to bankroll
