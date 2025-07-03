@@ -359,6 +359,41 @@ func (i *Interpreter) executeRemoveStatement(stmt *RemoveStatement) (string, err
 }
 
 func (i *Interpreter) executeRemoveStatementForPlayer(stmt *RemoveStatement, playerID string) (string, error) {
+	// Handle REMOVE ALL case
+	if stmt.BetType == nil {
+		// Remove all bets for the player
+		player, err := i.table.GetPlayer(playerID)
+		if err != nil {
+			return "", fmt.Errorf("player %s not found", playerID)
+		}
+
+		removedCount := 0
+		totalReturned := 0.0
+
+		// Create a copy of the bets slice to avoid modification during iteration
+		bets := make([]*Bet, len(player.Bets))
+		copy(bets, player.Bets)
+
+		for _, bet := range bets {
+			if bet.Working {
+				// Return bet amount to player's bankroll
+				player.Bankroll += bet.Amount
+				totalReturned += bet.Amount
+				removedCount++
+			}
+		}
+
+		// Clear all bets
+		player.Bets = []*Bet{}
+
+		if removedCount == 0 {
+			return "ℹ️ No active bets to remove", nil
+		}
+
+		return fmt.Sprintf("✅ Removed %d bets, returned $%.2f to bankroll", removedCount, totalReturned), nil
+	}
+
+	// Handle REMOVE <bet_type> case
 	betType := i.betTypeToString(stmt.BetType.Type)
 
 	// Remove the bet using the game engine
