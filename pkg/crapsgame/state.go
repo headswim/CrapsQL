@@ -122,9 +122,12 @@ func (t *Table) RemovePlayer(id string) error {
 		return fmt.Errorf("player %s not found", id)
 	}
 
-	// Remove all player's bets
+	// Remove all player's bets and return money for active bets
 	for _, bet := range player.Bets {
-		t.removeBet(bet.ID)
+		if bet.Working {
+			// Return bet amount to player's bankroll
+			player.Bankroll += bet.Amount
+		}
 	}
 
 	delete(t.Players, id)
@@ -521,6 +524,19 @@ func (t *Table) PlaceBet(playerID, betType string, amount float64, numbers []int
 
 // removeBet removes a bet from the table
 func (t *Table) removeBet(betID string) {
+	for _, player := range t.Players {
+		for i, bet := range player.Bets {
+			if bet.ID == betID {
+				// Remove bet from slice (no money returned - this is for losing bets)
+				player.Bets = append(player.Bets[:i], player.Bets[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
+// removeBetWithRefund removes a bet and returns the money to the player (for voluntary removal)
+func (t *Table) removeBetWithRefund(betID string) {
 	for _, player := range t.Players {
 		for i, bet := range player.Bets {
 			if bet.ID == betID {
