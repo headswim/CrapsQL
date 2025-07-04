@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"sort"
 	"time"
 )
 
@@ -142,11 +143,44 @@ func (t *Table) RemovePlayer(id string) error {
 
 // assignNewShooter assigns a new shooter from available players
 func (t *Table) assignNewShooter() {
-	for id := range t.Players {
-		t.Shooter = id
+	if len(t.Players) == 0 {
+		t.Shooter = ""
 		return
 	}
-	t.Shooter = "" // no players left
+
+	// Get sorted list of player IDs for consistent order
+	var playerIDs []string
+	for id := range t.Players {
+		playerIDs = append(playerIDs, id)
+	}
+
+	// Sort to ensure consistent ordering
+	sort.Strings(playerIDs)
+
+	// Find current shooter and assign next player
+	if t.Shooter == "" {
+		// No current shooter, assign first player
+		t.Shooter = playerIDs[0]
+		return
+	}
+
+	// Find current shooter index
+	currentIndex := -1
+	for i, id := range playerIDs {
+		if id == t.Shooter {
+			currentIndex = i
+			break
+		}
+	}
+
+	// Assign next player (wrap around if needed)
+	if currentIndex == -1 {
+		// Current shooter not found, assign first player
+		t.Shooter = playerIDs[0]
+	} else {
+		nextIndex := (currentIndex + 1) % len(playerIDs)
+		t.Shooter = playerIDs[nextIndex]
+	}
 }
 
 // RollDice simulates a dice roll using secure RNG
@@ -826,17 +860,24 @@ func (t *Table) ResolveAllBets(roll *Roll) []string {
 			}
 
 			// Use the unified ResolveBet function from canonical_bets.go
-			win, payout, remove := ResolveBet(bet, roll, t.State)
+			// Pass the current point number for bet resolution
+			currentPoint := t.GetPointNumber()
+			win, payout, remove := ResolveBet(bet, roll, t.State, currentPoint)
 
 			if win {
-				// Bet wins - add payout to bankroll
-				player.Bankroll += bet.Amount + payout
-				results = append(results, fmt.Sprintf("🎉 %s wins $%.2f (payout: $%.2f)", bet.Type, bet.Amount+payout, payout))
+				if remove {
+					// Bet wins and is removed - add bet amount + payout to bankroll
+					player.Bankroll += bet.Amount + payout
+					results = append(results, fmt.Sprintf("🎉 %s wins $%.2f (bet: $%.2f + payout: $%.2f)", bet.Type, bet.Amount+payout, bet.Amount, payout))
+				} else {
+					// Bet wins but stays on table - only add payout to bankroll
+					player.Bankroll += payout
+					results = append(results, fmt.Sprintf("🎉 %s wins $%.2f (payout only)", bet.Type, payout))
+				}
 			} else if remove {
-				// Bet loses and should be removed
-				results = append(results, fmt.Sprintf("💥 %s loses $%.2f", bet.Type, bet.Amount))
+				// Bet loses - no money added
+				results = append(results, fmt.Sprintf("💸 %s loses $%.2f", bet.Type, bet.Amount))
 			}
-			// If neither win nor remove, bet continues (no action needed)
 
 			if remove {
 				betsToRemove = append(betsToRemove, bet)
@@ -844,8 +885,13 @@ func (t *Table) ResolveAllBets(roll *Roll) []string {
 		}
 
 		// Remove resolved bets
-		for _, bet := range betsToRemove {
-			t.removeBet(bet.ID)
+		for _, betToRemove := range betsToRemove {
+			for i, bet := range player.Bets {
+				if bet == betToRemove {
+					player.Bets = append(player.Bets[:i], player.Bets[i+1:]...)
+					break
+				}
+			}
 		}
 	}
 

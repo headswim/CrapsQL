@@ -94,7 +94,7 @@ var CanonicalBetDefinitions = map[string]CanonicalBetDefinition{
 		PayoutNumerator:   1,
 		PayoutDenominator: 1,
 		ValidNumbers:      []int{},
-		RequiresPoint:     false,
+		RequiresPoint:     true,
 		RequiresComeOut:   false,
 		HouseEdge:         1.41,
 		Commission:        0.0,
@@ -109,7 +109,7 @@ var CanonicalBetDefinitions = map[string]CanonicalBetDefinition{
 		PayoutNumerator:   1,
 		PayoutDenominator: 1,
 		ValidNumbers:      []int{},
-		RequiresPoint:     false,
+		RequiresPoint:     true,
 		RequiresComeOut:   false,
 		HouseEdge:         1.36,
 		Commission:        0.0,
@@ -1358,8 +1358,12 @@ func resolvePassLine(bet *Bet, roll *Roll, state GameState) (bool, float64, bool
 		} else if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
 			return false, 0, true
 		}
+		// Point established - bet stays on table
 		return false, 0, false
 	} else if state == StatePoint {
+		// For pass line bets, we need to get the current point from the table
+		// Since we don't have access to the table here, we'll need to modify the approach
+		// For now, let's assume the point is stored in bet.Numbers[0] when established
 		if len(bet.Numbers) == 0 {
 			return false, 0, false
 		}
@@ -1369,6 +1373,8 @@ func resolvePassLine(bet *Bet, roll *Roll, state GameState) (bool, float64, bool
 		} else if roll.Total == 7 {
 			return false, 0, true
 		}
+		// Any other roll - bet stays on table
+		return false, 0, false
 	}
 	return false, 0, false
 }
@@ -1380,7 +1386,7 @@ func resolveDontPass(bet *Bet, roll *Roll, state GameState) (bool, float64, bool
 		if roll.Total == 2 || roll.Total == 3 {
 			return true, bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator), true
 		} else if roll.Total == 12 {
-			return false, 0, true // push
+			return true, 0, true // push - return bet amount (payout=0 means no extra winnings)
 		} else if roll.Total == 7 || roll.Total == 11 {
 			return false, 0, true
 		}
@@ -1402,11 +1408,11 @@ func resolveDontPass(bet *Bet, roll *Roll, state GameState) (bool, float64, bool
 // Field bet resolver
 func resolveFieldBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
 	if roll.Total == 2 {
-		return true, bet.Amount * 2, true
+		return true, bet.Amount * 2, true // 2:1 odds = bet + 2*bet winnings
 	} else if roll.Total == 12 {
-		return true, bet.Amount * 3, true
+		return true, bet.Amount * 3, true // 3:1 odds = bet + 3*bet winnings
 	} else if roll.Total == 3 || roll.Total == 4 || roll.Total == 9 || roll.Total == 10 || roll.Total == 11 {
-		return true, bet.Amount, true
+		return true, bet.Amount * 1, true // 1:1 odds = bet + 1*bet winnings
 	}
 	return false, 0, true
 }
@@ -1699,6 +1705,10 @@ var BetTypeResolvers = map[string]BetResolutionFunc{
 	"PASS_LINE": resolvePassLine,
 	// Don't Pass
 	"DONT_PASS": resolveDontPass,
+	// Pass Odds
+	"PASS_ODDS": resolvePassOdds,
+	// Don't Pass Odds
+	"DONT_PASS_ODDS": resolveDontPassOdds,
 	// Field
 	"FIELD": resolveFieldBet,
 	// Any Seven
@@ -1754,11 +1764,178 @@ var BetTypeResolvers = map[string]BetResolutionFunc{
 }
 
 // Central entry point for resolving a bet
-func ResolveBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+func ResolveBet(bet *Bet, roll *Roll, state GameState, currentPoint int) (bool, float64, bool) {
 	resolver, ok := BetTypeResolvers[bet.Type]
 	if !ok {
 		// fallback or error: unknown bet type
 		return false, 0, false
 	}
-	return resolver(bet, roll, state)
+
+	// For pass line bets, we need special handling to use the current point
+	if bet.Type == "PASS_LINE" {
+		def, _ := CanonicalBetDefinitions[bet.Type]
+
+		if state == StateComeOut {
+			// Come out roll logic
+			if roll.Total == 7 || roll.Total == 11 {
+				payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+				return true, payout, true
+			} else if roll.Total == 2 || roll.Total == 3 || roll.Total == 12 {
+				return false, 0, true
+			}
+			// Point established - bet stays on table
+			return false, 0, false
+		} else if state == StatePoint {
+			// Point phase logic
+			if currentPoint == 0 {
+				return false, 0, false
+			}
+			if roll.Total == currentPoint {
+				payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
+				return true, payout, true
+			} else if roll.Total == 7 {
+				return false, 0, true
+			}
+			// Any other roll - bet stays on table
+			return false, 0, false
+		}
+	}
+
+	// For pass odds bets, we need special handling to use the current point
+	if bet.Type == "PASS_ODDS" {
+		if state != StatePoint || currentPoint == 0 {
+			return false, 0, false
+		}
+
+		if roll.Total == currentPoint {
+			// Point made - odds bet wins at true odds
+			var payoutMultiplier float64
+			switch currentPoint {
+			case 4, 10:
+				payoutMultiplier = 2.0 // 2:1 true odds
+			case 5, 9:
+				payoutMultiplier = 1.5 // 3:2 true odds
+			case 6, 8:
+				payoutMultiplier = 1.2 // 6:5 true odds
+			default:
+				return false, 0, true // Invalid point
+			}
+			payout := bet.Amount * payoutMultiplier
+			return true, payout, true
+		} else if roll.Total == 7 {
+			// Seven out - odds bet loses
+			return false, 0, true
+		}
+
+		// Any other roll - bet continues
+		return false, 0, false
+	}
+
+	// For don't pass odds bets, we need special handling to use the current point
+	if bet.Type == "DONT_PASS_ODDS" {
+		if state != StatePoint || currentPoint == 0 {
+			return false, 0, false
+		}
+
+		if roll.Total == 7 {
+			// Seven out - don't pass odds bet wins at true odds
+			var payoutMultiplier float64
+			switch currentPoint {
+			case 4, 10:
+				payoutMultiplier = 0.5 // 1:2 true odds
+			case 5, 9:
+				payoutMultiplier = 0.667 // 2:3 true odds
+			case 6, 8:
+				payoutMultiplier = 0.833 // 5:6 true odds
+			default:
+				return false, 0, true // Invalid point
+			}
+			payout := bet.Amount * payoutMultiplier
+			return true, payout, true
+		} else if roll.Total == currentPoint {
+			// Point made - don't pass odds bet loses
+			return false, 0, true
+		}
+
+		// Any other roll - bet continues
+		return false, 0, false
+	}
+
+	// Use the standard resolver for all other bet types
+	win, payout, remove := resolver(bet, roll, state)
+	return win, payout, remove
+}
+
+// Pass Odds resolver
+func resolvePassOdds(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	// Pass odds bets only work in point phase
+	if state != StatePoint {
+		return false, 0, false
+	}
+
+	// Pass odds bets need the point number to calculate true odds
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	point := bet.Numbers[0]
+
+	if roll.Total == point {
+		// Point made - odds bet wins at true odds
+		var payoutMultiplier float64
+		switch point {
+		case 4, 10:
+			payoutMultiplier = 2.0 // 2:1 true odds
+		case 5, 9:
+			payoutMultiplier = 1.5 // 3:2 true odds
+		case 6, 8:
+			payoutMultiplier = 1.2 // 6:5 true odds
+		default:
+			return false, 0, true // Invalid point
+		}
+		payout := bet.Amount * payoutMultiplier
+		return true, payout, true
+	} else if roll.Total == 7 {
+		// Seven out - odds bet loses
+		return false, 0, true
+	}
+
+	// Any other roll - bet continues
+	return false, 0, false
+}
+
+// Don't Pass Odds resolver
+func resolveDontPassOdds(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) {
+	// Don't pass odds bets only work in point phase
+	if state != StatePoint {
+		return false, 0, false
+	}
+
+	// Don't pass odds bets need the point number to calculate true odds
+	if len(bet.Numbers) == 0 {
+		return false, 0, false
+	}
+	point := bet.Numbers[0]
+
+	if roll.Total == 7 {
+		// Seven out - don't pass odds bet wins at true odds
+		var payoutMultiplier float64
+		switch point {
+		case 4, 10:
+			payoutMultiplier = 0.5 // 1:2 true odds
+		case 5, 9:
+			payoutMultiplier = 0.667 // 2:3 true odds
+		case 6, 8:
+			payoutMultiplier = 0.833 // 5:6 true odds
+		default:
+			return false, 0, true // Invalid point
+		}
+		payout := bet.Amount * payoutMultiplier
+		return true, payout, true
+	} else if roll.Total == point {
+		// Point made - don't pass odds bet loses
+		return false, 0, true
+	}
+
+	// Any other roll - bet continues
+	return false, 0, false
 }
