@@ -41,14 +41,15 @@ type Roll struct {
 
 // Bet represents a single bet on the table
 type Bet struct {
-	ID       string
-	Type     string
-	Amount   float64
-	Player   string
-	PlacedAt time.Time
-	Working  bool    // true if bet is active for current roll
-	Odds     float64 // for odds bets
-	Numbers  []int   // for bets on specific numbers (e.g., place numbers)
+	ID            string
+	Type          string
+	Amount        float64
+	Player        string
+	PlacedAt      time.Time
+	Working       bool    // final computed status (systemWorking AND playerWorking)
+	PlayerWorking bool    // player's manual preference (defaults to true)
+	Odds          float64 // for odds bets
+	Numbers       []int   // for bets on specific numbers (e.g., place numbers)
 }
 
 // Player represents a player at the table
@@ -512,13 +513,14 @@ func (t *Table) PlaceBet(playerID, betType string, amount float64, numbers []int
 
 	// Create bet object for comprehensive validation
 	bet := &Bet{
-		ID:       generateBetID(),
-		Type:     betType,
-		Amount:   amount,
-		Player:   playerID,
-		PlacedAt: time.Now(),
-		Working:  true,
-		Numbers:  numbers,
+		ID:            generateBetID(),
+		Type:          betType,
+		Amount:        amount,
+		Player:        playerID,
+		PlacedAt:      time.Now(),
+		Working:       true,
+		PlayerWorking: true, // Player preference defaults to true
+		Numbers:       numbers,
 	}
 
 	// Comprehensive validation using validation functions from crapsql package
@@ -932,7 +934,9 @@ func (t *Table) RollDiceAndResolve() (*Roll, []string) {
 func (t *Table) UpdateBetWorkingStatus() {
 	for _, player := range t.Players {
 		for _, bet := range player.Bets {
-			bet.Working = t.shouldBetBeWorking(bet, t.State)
+			// Final working status = system rules AND player preference
+			systemWorking := t.shouldBetBeWorking(bet, t.State)
+			bet.Working = systemWorking && bet.PlayerWorking
 		}
 	}
 }
@@ -983,7 +987,7 @@ func (t *Table) RemoveBet(playerID, betType string) error {
 	removedCount := 0
 
 	for _, bet := range player.Bets {
-		if bet.Type == betType && bet.Working {
+		if bet.Type == betType {
 			// Return bet amount to player's bankroll
 			player.Bankroll += bet.Amount
 			removedCount++
@@ -1042,7 +1046,11 @@ func (t *Table) TurnBet(playerID, betType string, working bool) error {
 	turnedCount := 0
 	for _, bet := range player.Bets {
 		if bet.Type == betType {
-			bet.Working = working
+			// Set player preference
+			bet.PlayerWorking = working
+			// Recalculate final working status
+			systemWorking := t.shouldBetBeWorking(bet, t.State)
+			bet.Working = systemWorking && bet.PlayerWorking
 			turnedCount++
 		}
 	}

@@ -927,6 +927,67 @@ func TestRollStatementParsing(t *testing.T) {
 	}
 }
 
+func TestTurnStatementParsing(t *testing.T) {
+	// Test TURN ON statement parsing
+	input := "TURN ON PLACE_6;"
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+
+	program := parser.ParseProgram()
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("Expected 1 statement, got %d", len(program.Statements))
+	}
+
+	stmt, ok := program.Statements[0].(*TurnStatement)
+	if !ok {
+		t.Fatalf("Expected TurnStatement, got %T", program.Statements[0])
+	}
+
+	if stmt.Action != "ON" {
+		t.Errorf("Expected action 'ON', got '%s'", stmt.Action)
+	}
+
+	if stmt.BetType.Type != BetPlace6 {
+		t.Errorf("Expected bet type BetPlace6, got %v", stmt.BetType.Type)
+	}
+
+	// Test TURN OFF statement parsing
+	input2 := "TURN OFF HARD_8;"
+	lexer2 := NewLexer(input2)
+	parser2 := NewParser(lexer2)
+
+	program2 := parser2.ParseProgram()
+
+	if len(program2.Statements) != 1 {
+		t.Fatalf("Expected 1 statement, got %d", len(program2.Statements))
+	}
+
+	stmt2, ok := program2.Statements[0].(*TurnStatement)
+	if !ok {
+		t.Fatalf("Expected TurnStatement, got %T", program2.Statements[0])
+	}
+
+	if stmt2.Action != "OFF" {
+		t.Errorf("Expected action 'OFF', got '%s'", stmt2.Action)
+	}
+
+	if stmt2.BetType.Type != BetHard8 {
+		t.Errorf("Expected bet type BetHard8, got %v", stmt2.BetType.Type)
+	}
+
+	// Check for parser errors
+	errors := parser.Errors()
+	if len(errors) > 0 {
+		t.Errorf("Unexpected parser errors: %v", errors)
+	}
+
+	errors2 := parser2.Errors()
+	if len(errors2) > 0 {
+		t.Errorf("Unexpected parser errors: %v", errors2)
+	}
+}
+
 func TestErrorRecoveryMalformedStatements(t *testing.T) {
 	// Test error recovery for malformed statements
 	input := `PLACE $25 ON PASS_LINE;
@@ -2276,6 +2337,101 @@ func TestInterpreterManagementStatements(t *testing.T) {
 	}
 }
 
+func TestInterpreterTurnStatements(t *testing.T) {
+	table, players := setupTestGame(t)
+	playerID := players[0]
+
+	// First, place a bet to turn on/off
+	_, err := executeCrapsQLForPlayer(t, table, playerID, "PLACE $25 ON PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+
+	// Verify bet exists and is working by default
+	verifyBetExists(t, table, playerID, "PLACE_6", 25.0)
+
+	// Get the bet and verify it's working
+	player, err := table.GetPlayer(playerID)
+	if err != nil {
+		t.Fatalf("Failed to get player: %v", err)
+	}
+
+	var place6Bet *crapsgame.Bet
+	for _, bet := range player.Bets {
+		if bet.Type == "PLACE_6" {
+			place6Bet = bet
+			break
+		}
+	}
+
+	if place6Bet == nil {
+		t.Fatalf("Could not find PLACE_6 bet")
+	}
+
+	if !place6Bet.Working {
+		t.Errorf("Expected PLACE_6 bet to be working by default, but it's not")
+	}
+
+	// Test TURN OFF command
+	results, err := executeCrapsQLForPlayer(t, table, playerID, "TURN OFF PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to execute TURN OFF: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result, got %d", len(results))
+	}
+
+	if !strings.Contains(results[0], "Turned PLACE_6 bet off") {
+		t.Errorf("Expected success message for TURN OFF, got: %s", results[0])
+	}
+
+	// Verify bet is now not working
+	if place6Bet.Working {
+		t.Errorf("Expected PLACE_6 bet to be turned off, but it's still working")
+	}
+
+	// Test TURN ON command
+	results, err = executeCrapsQLForPlayer(t, table, playerID, "TURN ON PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to execute TURN ON: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result, got %d", len(results))
+	}
+
+	if !strings.Contains(results[0], "Turned PLACE_6 bet on") {
+		t.Errorf("Expected success message for TURN ON, got: %s", results[0])
+	}
+
+	// Verify bet is now working again
+	if !place6Bet.Working {
+		t.Errorf("Expected PLACE_6 bet to be turned on, but it's not working")
+	}
+
+	// Test turning off/on a different bet type
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "PLACE $10 ON HARD_8;")
+	if err != nil {
+		t.Fatalf("Failed to place HARD_8 bet: %v", err)
+	}
+
+	results, err = executeCrapsQLForPlayer(t, table, playerID, "TURN OFF HARD_8;")
+	if err != nil {
+		t.Fatalf("Failed to turn off HARD_8 bet: %v", err)
+	}
+
+	if !strings.Contains(results[0], "Turned HARD_8 bet off") {
+		t.Errorf("Expected success message for HARD_8 TURN OFF, got: %s", results[0])
+	}
+
+	// Test error case - trying to turn non-existent bet
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "TURN ON PLACE_4;")
+	if err == nil {
+		t.Error("Expected error when turning on non-existent bet, got nil")
+	}
+}
+
 // 6.9 Validation Tests
 func TestBetValidationRules(t *testing.T) {
 	table, players := setupTestGame(t)
@@ -2705,4 +2861,127 @@ func getPlayerBetCount(t *testing.T, table *crapsgame.Table, playerID string) in
 		t.Fatalf("Failed to get player %s: %v", playerID, err)
 	}
 	return len(player.Bets)
+}
+
+func TestTurnOffPreservation(t *testing.T) {
+	table, players := setupTestGame(t)
+	playerID := players[0]
+
+	// First, place a bet
+	_, err := executeCrapsQLForPlayer(t, table, playerID, "PLACE $25 ON PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+
+	// Verify bet exists and is working by default
+	player, err := table.GetPlayer(playerID)
+	if err != nil {
+		t.Fatalf("Failed to get player: %v", err)
+	}
+
+	var place6Bet *crapsgame.Bet
+	for _, bet := range player.Bets {
+		if bet.Type == "PLACE_6" {
+			place6Bet = bet
+			break
+		}
+	}
+
+	if place6Bet == nil {
+		t.Fatalf("PLACE_6 bet not found")
+	}
+
+	// Verify initial state
+	if !place6Bet.Working {
+		t.Errorf("Bet should be working initially, got Working=%v", place6Bet.Working)
+	}
+	if !place6Bet.PlayerWorking {
+		t.Errorf("Bet should have PlayerWorking=true initially, got PlayerWorking=%v", place6Bet.PlayerWorking)
+	}
+
+	// Turn the bet OFF
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "TURN OFF PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to turn OFF PLACE_6 bet: %v", err)
+	}
+
+	// Verify bet is now OFF
+	if place6Bet.Working {
+		t.Errorf("Bet should be OFF after TURN OFF, got Working=%v", place6Bet.Working)
+	}
+	if place6Bet.PlayerWorking {
+		t.Errorf("Bet should have PlayerWorking=false after TURN OFF, got PlayerWorking=%v", place6Bet.PlayerWorking)
+	}
+
+	// Simulate system working status update (this used to be the bug)
+	table.UpdateBetWorkingStatus()
+
+	// Verify bet is STILL OFF after system update
+	if place6Bet.Working {
+		t.Errorf("Bet should remain OFF after UpdateBetWorkingStatus, got Working=%v", place6Bet.Working)
+	}
+	if place6Bet.PlayerWorking {
+		t.Errorf("Bet should still have PlayerWorking=false after UpdateBetWorkingStatus, got PlayerWorking=%v", place6Bet.PlayerWorking)
+	}
+
+	// Roll dice to see that OFF bet is not resolved
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "ROLL DICE;")
+	if err != nil {
+		t.Fatalf("Failed to roll dice: %v", err)
+	}
+
+	// Verify bet still exists (wasn't resolved)
+	found := false
+	for _, bet := range player.Bets {
+		if bet.Type == "PLACE_6" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("PLACE_6 bet should still exist after roll because it was OFF")
+	}
+
+	// Turn the bet back ON
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "TURN ON PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to turn ON PLACE_6 bet: %v", err)
+	}
+
+	// Verify bet is now ON
+	if !place6Bet.Working {
+		t.Errorf("Bet should be ON after TURN ON, got Working=%v", place6Bet.Working)
+	}
+	if !place6Bet.PlayerWorking {
+		t.Errorf("Bet should have PlayerWorking=true after TURN ON, got PlayerWorking=%v", place6Bet.PlayerWorking)
+	}
+
+	// Test that bet can be removed when OFF
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "TURN OFF PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to turn OFF PLACE_6 bet: %v", err)
+	}
+
+	initialBankrollForRemove := player.Bankroll
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "REMOVE PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to remove OFF PLACE_6 bet: %v", err)
+	}
+
+	// Verify bet was removed and money returned
+	found = false
+	for _, bet := range player.Bets {
+		if bet.Type == "PLACE_6" {
+			found = true
+			break
+		}
+	}
+	if found {
+		t.Errorf("PLACE_6 bet should have been removed")
+	}
+
+	expectedBankroll := initialBankrollForRemove + 25.0
+	if player.Bankroll != expectedBankroll {
+		t.Errorf("Expected bankroll $%.2f after removing OFF bet, got $%.2f", expectedBankroll, player.Bankroll)
+	}
 }
