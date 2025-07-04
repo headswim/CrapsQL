@@ -837,9 +837,9 @@ func (p *Parser) parseTurnStatement() *TurnStatement {
 	p.nextToken() // consume TURN
 
 	switch p.curToken.Type {
-	case ON_KEYWORD:
+	case ON:
 		stmt.Action = "ON"
-	case OFF:
+	case OFF_MODIFIER:
 		stmt.Action = "OFF"
 	default:
 		p.addError(fmt.Sprintf("expected ON or OFF, got %s", p.curToken.Literal))
