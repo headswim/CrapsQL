@@ -852,6 +852,9 @@ func PointToNumber(point Point) (int, error) {
 func (t *Table) ResolveAllBets(roll *Roll) []string {
 	var results []string
 
+	// Update bet working status based on current game state
+	t.UpdateBetWorkingStatus()
+
 	// Process all player bets
 	for _, player := range t.Players {
 		var betsToRemove []*Bet
@@ -942,6 +945,27 @@ func (t *Table) UpdateBetWorkingStatus() {
 }
 
 func (t *Table) shouldBetBeWorking(bet *Bet, state GameState) bool {
+	// Place bets are OFF during come-out phase by default
+	if state == StateComeOut {
+		switch bet.Type {
+		case "PLACE_4", "PLACE_5", "PLACE_6", "PLACE_8", "PLACE_9", "PLACE_10",
+			"PLACE_INSIDE", "PLACE_OUTSIDE", "PLACE_NUMBERS":
+			return false
+		case "BUY_4", "BUY_5", "BUY_6", "BUY_8", "BUY_9", "BUY_10":
+			return false
+		case "LAY_4", "LAY_5", "LAY_6", "LAY_8", "LAY_9", "LAY_10":
+			return false
+		case "PLACE_TO_LOSE_4", "PLACE_TO_LOSE_5", "PLACE_TO_LOSE_6",
+			"PLACE_TO_LOSE_8", "PLACE_TO_LOSE_9", "PLACE_TO_LOSE_10":
+			return false
+		case "HARD_4", "HARD_6", "HARD_8", "HARD_10", "ALL_HARDWAYS":
+			return false
+		case "BIG_6", "BIG_8":
+			return false
+		}
+	}
+
+	// All other bets are working by default
 	return true
 }
 

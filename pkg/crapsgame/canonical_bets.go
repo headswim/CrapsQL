@@ -1275,7 +1275,8 @@ func resolvePlaceBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool
 		def, _ := CanonicalBetDefinitions[bet.Type]
 		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
 		return true, payout, false // Win and continue
-	} else if roll.Total == 7 {
+	} else if roll.Total == 7 && state == StatePoint {
+		// Place bets only lose to 7 during point phase, not come-out
 		return false, 0, true // Lose and remove
 	}
 	return false, 0, false // Continue
@@ -1292,7 +1293,8 @@ func resolveBuyBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) 
 		gross := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
 		commission := bet.Amount * def.Commission
 		return true, gross - commission, false // Win and continue
-	} else if roll.Total == 7 {
+	} else if roll.Total == 7 && state == StatePoint {
+		// Buy bets only lose to 7 during point phase, not come-out
 		return false, 0, true // Lose and remove
 	}
 	return false, 0, false // Continue
@@ -1343,7 +1345,8 @@ func resolveHardwayBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bo
 		return true, payout, false // Win and continue
 	} else if roll.Total == num && !roll.IsHard {
 		return false, 0, true // Lose and remove
-	} else if roll.Total == 7 {
+	} else if roll.Total == 7 && state == StatePoint {
+		// Hardway bets only lose to 7 during point phase, not come-out
 		return false, 0, true // Lose and remove
 	}
 	return false, 0, false // Continue
@@ -1568,10 +1571,9 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 			if win {
 				return win, payout, remove
 			}
-		}
-		// Check if any place bet would lose (7 rolled)
-		if roll.Total == 7 {
-			return false, 0, true // Lose and remove
+			if remove {
+				return false, 0, true // Lose and remove
+			}
 		}
 		return false, 0, false // Continue
 	case "PLACE_INSIDE":
@@ -1582,10 +1584,9 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 			if win {
 				return win, payout, remove
 			}
-		}
-		// Check if any place bet would lose (7 rolled)
-		if roll.Total == 7 {
-			return false, 0, true // Lose and remove
+			if remove {
+				return false, 0, true // Lose and remove
+			}
 		}
 		return false, 0, false // Continue
 	case "PLACE_OUTSIDE":
@@ -1596,10 +1597,9 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 			if win {
 				return win, payout, remove
 			}
-		}
-		// Check if any place bet would lose (7 rolled)
-		if roll.Total == 7 {
-			return false, 0, true // Lose and remove
+			if remove {
+				return false, 0, true // Lose and remove
+			}
 		}
 		return false, 0, false // Continue
 	case "ALL_HARDWAYS":
@@ -1610,14 +1610,7 @@ func resolveCombinationBet(bet *Bet, roll *Roll, state GameState) (bool, float64
 			if win {
 				return win, payout, remove
 			}
-		}
-		// Check if any hardway bet would lose (7 rolled or number rolled easy)
-		if roll.Total == 7 {
-			return false, 0, true // Lose and remove
-		}
-		// Check if any of the hardway numbers were rolled easy
-		for _, num := range []int{4, 6, 8, 10} {
-			if roll.Total == num && !roll.IsHard {
+			if remove {
 				return false, 0, true // Lose and remove
 			}
 		}
@@ -1636,7 +1629,8 @@ func resolveBigBet(bet *Bet, roll *Roll, state GameState) (bool, float64, bool) 
 		def, _ := CanonicalBetDefinitions[bet.Type]
 		payout := bet.Amount * float64(def.PayoutNumerator) / float64(def.PayoutDenominator)
 		return true, payout, false // Win and continue
-	} else if roll.Total == 7 {
+	} else if roll.Total == 7 && state == StatePoint {
+		// Big 6/8 bets only lose to 7 during point phase, not come-out
 		return false, 0, true // Lose and remove
 	}
 	return false, 0, false // Continue
