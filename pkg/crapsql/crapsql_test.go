@@ -2985,3 +2985,107 @@ func TestTurnOffPreservation(t *testing.T) {
 		t.Errorf("Expected bankroll $%.2f after removing OFF bet, got $%.2f", expectedBankroll, player.Bankroll)
 	}
 }
+
+func TestTurnOffSevenOutScenario(t *testing.T) {
+	table, players := setupTestGame(t)
+	playerID := players[0]
+
+	// Establish a point first (like user did)
+	_, err := executeCrapsQLForPlayer(t, table, playerID, "ROLL DICE;")
+	if err != nil {
+		t.Fatalf("Failed to roll dice: %v", err)
+	}
+
+	// Keep rolling until we get a point
+	for table.GetState().String() != "POINT" {
+		_, err = executeCrapsQLForPlayer(t, table, playerID, "ROLL DICE;")
+		if err != nil {
+			t.Fatalf("Failed to roll dice: %v", err)
+		}
+	}
+
+	// Get initial bankroll
+	player, err := table.GetPlayer(playerID)
+	if err != nil {
+		t.Fatalf("Failed to get player: %v", err)
+	}
+	initialBankroll := player.Bankroll
+
+	// Place PLACE_6 bet
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "PLACE $25 ON PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to place PLACE_6 bet: %v", err)
+	}
+
+	// Verify bankroll decreased
+	if player.Bankroll != initialBankroll-25 {
+		t.Errorf("Expected bankroll $%.2f after placing bet, got $%.2f", initialBankroll-25, player.Bankroll)
+	}
+
+	// Find the bet
+	var place6Bet *crapsgame.Bet
+	for _, bet := range player.Bets {
+		if bet.Type == "PLACE_6" {
+			place6Bet = bet
+			break
+		}
+	}
+	if place6Bet == nil {
+		t.Fatalf("PLACE_6 bet not found")
+	}
+
+	// Turn bet OFF
+	_, err = executeCrapsQLForPlayer(t, table, playerID, "TURN OFF PLACE_6;")
+	if err != nil {
+		t.Fatalf("Failed to turn OFF PLACE_6 bet: %v", err)
+	}
+
+	// Debug: Check bet status after turning OFF
+	t.Logf("After TURN OFF: Working=%v, PlayerWorking=%v", place6Bet.Working, place6Bet.PlayerWorking)
+
+	// Force a seven out using simulateDiceRoll for deterministic testing
+	roll, results := simulateDiceRoll(t, table, 3, 4) // 7
+	sevenOutOccurred := false
+
+	// Check if seven out occurred in the results
+	for _, result := range results {
+		if strings.Contains(result, "Seven out") {
+			sevenOutOccurred = true
+			t.Logf("Seven out occurred: %s", result)
+			break
+		}
+	}
+
+	if !sevenOutOccurred {
+		t.Logf("Seven out not detected in results, but 7 was rolled (total=%d)", roll.Total)
+		// Seven out should occur when we're in POINT state and roll a 7
+		if roll.Total == 7 {
+			sevenOutOccurred = true
+		}
+	}
+
+	// Debug: Check bet status after seven out
+	t.Logf("After seven out: Working=%v, PlayerWorking=%v", place6Bet.Working, place6Bet.PlayerWorking)
+
+	// Check if bet still exists
+	betStillExists := false
+	for _, bet := range player.Bets {
+		if bet.Type == "PLACE_6" {
+			betStillExists = true
+			break
+		}
+	}
+
+	// The OFF bet should still exist (not resolved)
+	if !betStillExists {
+		t.Errorf("PLACE_6 bet should still exist because it was OFF during seven out")
+	}
+
+	// Bankroll should be unchanged (bet wasn't resolved)
+	expectedBankroll := initialBankroll - 25 // Still down the $25 for the unresolved bet
+	if player.Bankroll != expectedBankroll {
+		t.Errorf("Expected bankroll $%.2f (bet unresolved), got $%.2f", expectedBankroll, player.Bankroll)
+	}
+
+	t.Logf("Final bankroll: $%.2f (should still be down $25)", player.Bankroll)
+}
